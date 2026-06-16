@@ -16,6 +16,51 @@
 
 <section>
     <h2>Goal</h2>
-    <p><em>Goal setting and AI-generated training plans are coming in a later step.</em></p>
+
+    {% if error %}
+    <p style="color: red;">{{ error }}</p>
+    {% endif %}
+
+    {% if goal %}
+    <p>
+        Current goal: <strong>{{ goal.race_name or "General fitness" }}</strong>
+        ({{ goal.race_distance or "distance not set" }}),
+        race date {{ goal.race_date or "not set" }},
+        {{ goal.weekly_hours or "?" }} hrs/week.
+        Submitting the form below will replace it with a new plan.
+    </p>
+    {% endif %}
+
+    <form method="post" action="/setup/generate-plan">
+        <p>
+            <label>Race / goal name<br>
+                <input type="text" name="race_name" value="{{ goal.race_name if goal else '' }}">
+            </label>
+        </p>
+        <p>
+            <label>Race date<br>
+                <input type="date" name="race_date" value="{{ goal.race_date if goal else '' }}">
+            </label>
+        </p>
+        <p>
+            <label>Distance / race type<br>
+                <input type="text" name="race_distance" placeholder="e.g. marathon, 10k, 70.3"
+                       value="{{ goal.race_distance if goal else '' }}">
+            </label>
+        </p>
+        <p>
+            <label>Weekly hours available<br>
+                <input type="number" name="weekly_hours" step="0.5" min="0"
+                       value="{{ goal.weekly_hours if goal else '' }}">
+            </label>
+        </p>
+        <p>
+            <label>Notes<br>
+                <textarea name="notes">{{ goal.notes if goal else '' }}</textarea>
+            </label>
+        </p>
+        <button type="submit">Generate training plan</button>
+        <p><em>This calls Claude with your Strava data and can take 10–30 seconds.</em></p>
+    </form>
 </section>
 {% endblock %}

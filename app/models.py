@@ -23,6 +23,7 @@ class Goal(SQLModel, table=True):
     race_date: Optional[date] = None
     race_distance: Optional[str] = None
     target_time: Optional[str] = None
+    weekly_hours: Optional[float] = None
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
 

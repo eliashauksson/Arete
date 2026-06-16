@@ -2,5 +2,63 @@
 {% block title %}Calendar — Arete{% endblock %}
 {% block content %}
 <h1>Calendar</h1>
-<p><em>The FullCalendar view of planned sessions and Strava activities is coming in a later step.</em></p>
+
+<div id="calendar"></div>
+
+<div id="session-detail" style="display:none; border:1px solid #ccc; padding:1em; margin-top:1em;"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
+<style>
+  .fc-event.actual { opacity: .55; border-style: dashed; }
+</style>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var calendarEl = document.getElementById("calendar");
+    var detailEl = document.getElementById("session-detail");
+
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: "dayGridMonth",
+        events: "/calendar/events",
+        eventClick: function (info) {
+            var props = info.event.extendedProps;
+            if (props.kind === "planned") {
+                fetch("/calendar/session/" + props.sessionId)
+                    .then(function (r) { return r.text(); })
+                    .then(function (html) {
+                        detailEl.innerHTML = html;
+                        detailEl.style.display = "block";
+                    });
+            } else {
+                alert(info.event.title);
+            }
+        }
+    });
+    calendar.render();
+
+    detailEl.addEventListener("submit", function (e) {
+        if (e.target.id !== "adjust-form") return;
+        e.preventDefault();
+        var form = e.target;
+        var sessionId = form.dataset.sessionId;
+        var instruction = form.instruction.value;
+        var statusEl = document.getElementById("adjust-status");
+        statusEl.textContent = "Adjusting via Claude (this can take a while)...";
+        fetch("/calendar/session/" + sessionId + "/adjust", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ instruction: instruction })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.ok) {
+                    statusEl.textContent = "Done.";
+                    detailEl.style.display = "none";
+                    calendar.refetchEvents();
+                } else {
+                    statusEl.textContent = "Error: " + data.error;
+                }
+            });
+    });
+});
+</script>
 {% endblock %}

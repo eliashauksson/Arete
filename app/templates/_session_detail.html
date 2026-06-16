@@ -1,0 +1,13 @@
+<h3>{{ session.title }}</h3>
+<p>
+    {{ session.date }} — {{ session.sport_type }} —
+    {{ session.planned_duration_min }} min — load {{ session.planned_load }}
+</p>
+<p>{{ session.description or "" }}</p>
+<p>Status: {{ session.status }}</p>
+
+<form id="adjust-form" data-session-id="{{ session.id }}">
+    <textarea name="instruction" placeholder="e.g. I'm injured, swap this week for easy rest days" required></textarea>
+    <button type="submit">Adjust via Claude</button>
+</form>
+<p id="adjust-status"></p>

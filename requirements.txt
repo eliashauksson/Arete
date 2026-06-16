@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+jinja2
+pydantic-settings
+python-multipart
+anthropic[mcp]

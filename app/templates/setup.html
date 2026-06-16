@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Setup — Arete{% endblock %}
+{% block content %}
+<h1>Setup</h1>
+
+<section>
+    <h2>Strava connection</h2>
+    <form hx-post="/setup/connect-strava" hx-target="#strava-result" hx-swap="innerHTML">
+        <button type="submit">Connect Strava</button>
+    </form>
+    <form hx-post="/setup/verify-connection" hx-target="#strava-result" hx-swap="innerHTML">
+        <button type="submit">Test Claude + Strava connection</button>
+    </form>
+    <pre id="strava-result"></pre>
+</section>
+
+<section>
+    <h2>Goal</h2>
+    <p><em>Goal setting and AI-generated training plans are coming in a later step.</em></p>
+</section>
+{% endblock %}

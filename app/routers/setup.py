@@ -2,7 +2,7 @@ import json
 from datetime import date as date_cls
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
@@ -177,9 +177,13 @@ async def setup_generate(request: Request, db: Session = Depends(get_session)):
     db.add(conv)
     db.commit()
 
-    return templates.TemplateResponse(
-        request, "_plan_generated.html", {"error": error}
-    )
+    if error:
+        return templates.TemplateResponse(request, "_plan_generated.html", {"error": error})
+
+    # Success: tell HTMX to navigate to the calendar.
+    resp = Response(content="", media_type="text/html")
+    resp.headers["HX-Redirect"] = "/calendar"
+    return resp
 
 
 # ── Refine (post-generation chat adjustment) ───────────────────────────────────

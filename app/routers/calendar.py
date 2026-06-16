@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -23,7 +23,17 @@ def _parse_fc_date(value: str) -> date:
 
 
 @router.get("/calendar", response_class=HTMLResponse)
-async def calendar_page(request: Request):
+async def calendar_page(request: Request, db: Session = Depends(get_session)):
+    athlete = db.exec(select(Athlete)).first()
+    if athlete is None:
+        return RedirectResponse("/setup", status_code=303)
+    plan = db.exec(
+        select(TrainingPlan)
+        .where(TrainingPlan.athlete_id == athlete.id)
+        .where(TrainingPlan.status == "active")
+    ).first()
+    if plan is None:
+        return RedirectResponse("/setup", status_code=303)
     return templates.TemplateResponse(request, "calendar.html", {})
 
 

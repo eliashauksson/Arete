@@ -390,6 +390,16 @@
     .chat-restart-link a { color: var(--muted); }
     .chat-restart-link a:hover { color: var(--text); }
 
+    /* ── Generation overlay spinner ── */
+    .gen-spinner {
+      width: 52px; height: 52px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     /* ── Error / notice ── */
     .notice-error {
       background: rgba(220,38,38,0.1);
@@ -406,13 +416,48 @@
   <nav class="site-nav">
     <a href="/" class="wordmark">Arete</a>
     <div class="nav-links">
+      {% if request.state.has_plan %}
       <a href="/dashboard" class="{{ 'active' if request.url.path.startswith('/dashboard') else '' }}">Dashboard</a>
       <a href="/calendar"  class="{{ 'active' if request.url.path.startswith('/calendar') else '' }}">Calendar</a>
+      {% endif %}
       <a href="/setup"     class="{{ 'active' if request.url.path.startswith('/setup') else '' }}">Setup</a>
     </div>
   </nav>
+
+  <!-- Generation overlay — covers everything while the plan is building -->
+  <div id="gen-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:1.75em;">
+    <div class="gen-spinner"></div>
+    <div style="text-align:center;max-width:340px">
+      <p id="gen-status" style="font-family:Georgia,serif;font-size:1.35em;color:var(--text);margin-bottom:0.4em">Building your plan…</p>
+      <p style="color:var(--muted);font-size:0.85em;margin:0">This takes about 30 seconds — hang tight.</p>
+    </div>
+  </div>
+
   <main>
     {% block content %}{% endblock %}
   </main>
+
+  <script>
+  var _genTimer = null;
+  function showGenerationOverlay() {
+    var el = document.getElementById('gen-overlay');
+    el.style.display = 'flex';
+    var msgs = [
+      'Fetching your Strava history…',
+      'Analysing your training patterns…',
+      'Building your weekly schedule…',
+      'Finalising your sessions…'
+    ];
+    var i = 0;
+    _genTimer = setInterval(function () {
+      i = (i + 1) % msgs.length;
+      document.getElementById('gen-status').textContent = msgs[i];
+    }, 5000);
+  }
+  function hideGenerationOverlay() {
+    document.getElementById('gen-overlay').style.display = 'none';
+    if (_genTimer) { clearInterval(_genTimer); _genTimer = null; }
+  }
+  </script>
 </body>
 </html>

@@ -83,6 +83,8 @@ async def _weekly_breakdown(db: Session) -> list[dict]:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request, db: Session = Depends(get_session)):
+    if _get_active_plan(db) is None:
+        return RedirectResponse("/setup", status_code=303)
     weeks = await _weekly_breakdown(db)
     return templates.TemplateResponse(
         request, "dashboard.html", {"weeks": weeks, "weeks_json": json.dumps(weeks)}

@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -193,6 +194,22 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
     start = date.today()
     end = start + timedelta(days=27)
 
+    # Sync the last 12 months of Strava activities into SQLite first, then build
+    # a compact summary to pass directly in the prompt so Claude doesn't need to
+    # paginate through history itself during plan generation.
+    history_summary: Optional[str] = None
+    history_start = start - timedelta(days=365)
+    try:
+        history = await sync_strava_activities(
+            mcp, db, athlete.id, history_start, start - timedelta(days=1),
+            force=True, max_tokens=8192, skip_summaries=True,
+        )
+        if history:
+            history_summary = build_activity_summary(history)
+            print(f"[planner] synced {len(history)} activities for history context")
+    except Exception as exc:
+        print(f"[planner] history sync failed, proceeding without it: {exc}")
+
     # Build a richer context from intake conversation data (if available)
     extra_ctx = ""
     if goal.sport_types:
@@ -220,10 +237,15 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
 
     context_prompt = (
         "Before designing the plan, use the Strava tools to fetch the athlete's "
-        "profile, recent activities (last several weeks), and heart rate zones "
-        "so the plan reflects their real current fitness. Then design a "
-        f"progressive 4-week training plan.{extra_ctx}"
+        "profile and heart rate zones so the plan reflects their real current fitness."
     )
+    if history_summary:
+        context_prompt += (
+            "\n\nAthlete's last 12 months of training (use for periodisation — "
+            "identify trends, peak months, and current load before building the plan):\n"
+            + history_summary
+        )
+    context_prompt += f"\n\nNow design a progressive 4-week training plan.{extra_ctx}"
     await regenerate_sessions_from(
         mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end
     )
@@ -277,6 +299,27 @@ async def weekly_reonadjust(mcp: StravaMCPClient, db: Session, plan: TrainingPla
     )
 
 
+def build_activity_summary(activities: list[StravaActivity]) -> str:
+    """Compact month-by-sport summary for Claude's planning context."""
+    if not activities:
+        return "No activities on record."
+    by_month: dict = defaultdict(lambda: defaultdict(lambda: {"n": 0, "km": 0.0, "h": 0.0}))
+    for a in activities:
+        key = a.start_date.strftime("%Y-%m")
+        sport = (a.sport_type or "other").lower()
+        by_month[key][sport]["n"] += 1
+        by_month[key][sport]["km"] += (a.distance or 0) / 1000
+        by_month[key][sport]["h"] += (a.moving_time or 0) / 3600
+    lines = []
+    for month in sorted(by_month.keys()):
+        parts = [
+            f"{s['n']}×{sport} {s['km']:.0f}km {s['h']:.1f}h"
+            for sport, s in sorted(by_month[month].items())
+        ]
+        lines.append(f"{month}: {', '.join(parts)}")
+    return "\n".join(lines)
+
+
 async def sync_strava_activities(
     mcp: StravaMCPClient,
     db: Session,
@@ -284,6 +327,8 @@ async def sync_strava_activities(
     start: date,
     end: date,
     force: bool = False,
+    max_tokens: int = 2048,
+    skip_summaries: bool = False,
 ) -> list[StravaActivity]:
     if start > end:
         return []
@@ -300,10 +345,12 @@ async def sync_strava_activities(
     if not is_fresh:
         print(f"[strava-sync] fetching live (force={force}, athlete_id={athlete_id})")
         prompt = (
-            f"Fetch my Strava activities between {start.isoformat()} and "
-            f"{end.isoformat()} inclusive. {ACTIVITY_SCHEMA_NOTE}"
+            f"Fetch ALL of my Strava activities between {start.isoformat()} and "
+            f"{end.isoformat()} inclusive. If there are many activities, paginate "
+            f"(per_page=200, page=1, page=2, …) until you have retrieved all of them. "
+            f"{ACTIVITY_SCHEMA_NOTE}"
         )
-        data = await run_agentic_json(mcp, prompt, effort="low")
+        data = await run_agentic_json(mcp, prompt, effort="low", max_tokens=max_tokens)
 
         to_summarise: list[StravaActivity] = []
         for item in data.get("activities", []):
@@ -346,15 +393,17 @@ async def sync_strava_activities(
         db.commit()
 
         # Generate AI coaching summaries for newly synced activities.
-        for act in to_summarise:
-            db.refresh(act)
-            try:
-                act.ai_summary = await generate_activity_summary(act)
-                db.add(act)
-            except Exception as exc:
-                print(f"[claude] summary failed for strava_id={act.strava_id}: {exc}")
-        if to_summarise:
-            db.commit()
+        # Skipped for bulk historical imports — generated lazily on first view instead.
+        if not skip_summaries:
+            for act in to_summarise:
+                db.refresh(act)
+                try:
+                    act.ai_summary = await generate_activity_summary(act)
+                    db.add(act)
+                except Exception as exc:
+                    print(f"[claude] summary failed for strava_id={act.strava_id}: {exc}")
+            if to_summarise:
+                db.commit()
     else:
         print(f"[strava-sync] using cache, synced {now - athlete.last_strava_sync} ago")
 

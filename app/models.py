@@ -68,4 +68,8 @@ class StravaActivity(SQLModel, table=True):
     average_heartrate: Optional[float] = None
     relative_effort: Optional[float] = None
     raw_json: Optional[str] = None
+    ai_summary: Optional[str] = None
+    gpx_data: Optional[str] = None    # JSON: [[lat, lng], ...]
+    hr_data: Optional[str] = None     # JSON: {"times": [s,...], "values": [bpm,...]}
+    pace_data: Optional[str] = None   # JSON: {"times": [s,...], "values": [min/km,...]}
     created_at: datetime = Field(default_factory=utcnow)

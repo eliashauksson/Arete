@@ -192,6 +192,34 @@ async def run_agentic_json(
         return extract_json(text)
 
 
+async def generate_activity_summary(activity) -> str:
+    """Lightweight Claude call (no MCP) to produce a 2-3 sentence coaching summary
+    from an activity's aggregate stats."""
+    client = get_client()
+    parts = [f"{activity.sport_type.title()} — {activity.name}"]
+    if activity.moving_time:
+        parts.append(f"{activity.moving_time // 60} min")
+    if activity.distance:
+        parts.append(f"{activity.distance / 1000:.1f} km")
+    if activity.average_heartrate:
+        parts.append(f"avg HR {int(activity.average_heartrate)} bpm")
+    if activity.total_elevation_gain:
+        parts.append(f"{int(activity.total_elevation_gain)} m gain")
+    if activity.relative_effort:
+        parts.append(f"effort score {int(activity.relative_effort)}")
+    prompt = (
+        ", ".join(parts) + ". "
+        "Write a 2-3 sentence coaching summary: effort level, pacing quality, "
+        "and one notable observation about this workout. Plain text only, no markdown."
+    )
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
 async def verify_strava_connection(mcp: StravaMCPClient) -> str:
     """Round-trips through Claude + the Strava MCP tools to prove the bridge works."""
     return await run_agentic_text(

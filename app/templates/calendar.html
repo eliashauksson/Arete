@@ -7,11 +7,67 @@
 
 <div id="session-detail" style="display:none; border:1px solid #ccc; padding:1em; margin-top:1em;"></div>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
 <style>
   .fc-event.actual { opacity: .55; border-style: dashed; }
 </style>
 <script>
+function initActivityDetail() {
+    var mapEl = document.getElementById('act-map');
+    if (mapEl && mapEl.dataset.coords) {
+        var coords = JSON.parse(mapEl.dataset.coords);
+        if (coords.length > 0) {
+            var map = L.map(mapEl);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+            var line = L.polyline(coords, { color: '#2563eb', weight: 3 }).addTo(map);
+            map.fitBounds(line.getBounds());
+            setTimeout(function () { map.invalidateSize(); }, 50);
+        }
+    }
+
+    function makeChart(id, borderColor, bgColor, reversed) {
+        var el = document.getElementById(id);
+        if (!el || !el.dataset.times) return;
+        var times = JSON.parse(el.dataset.times);
+        var values = JSON.parse(el.dataset.values);
+        var step = Math.max(1, Math.floor(times.length / 10));
+        var labels = times.map(function (t, i) {
+            return i % step === 0 ? Math.round(t / 60) + 'm' : '';
+        });
+        new Chart(el, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    borderColor: borderColor,
+                    backgroundColor: bgColor,
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.3,
+                    spanGaps: false
+                }]
+            },
+            options: {
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8, font: { size: 10 } } },
+                    y: { reverse: reversed || false, ticks: { font: { size: 10 } } }
+                }
+            }
+        });
+    }
+
+    makeChart('act-hr', '#dc2626', 'rgba(220,38,38,0.08)', false);
+    makeChart('act-pace', '#2563eb', 'rgba(37,99,235,0.08)', true);
+}
+
 document.addEventListener("DOMContentLoaded", function () {
     var calendarEl = document.getElementById("calendar");
     var detailEl = document.getElementById("session-detail");
@@ -28,8 +84,15 @@ document.addEventListener("DOMContentLoaded", function () {
                         detailEl.innerHTML = html;
                         detailEl.style.display = "block";
                     });
-            } else {
-                alert(info.event.title);
+            } else if (props.kind === "actual") {
+                detailEl.innerHTML = '<p style="color:#6b7280">Loading activity…</p>';
+                detailEl.style.display = "block";
+                fetch("/calendar/activity/" + props.activityId)
+                    .then(function (r) { return r.text(); })
+                    .then(function (html) {
+                        detailEl.innerHTML = html;
+                        initActivityDetail();
+                    });
             }
         }
     });

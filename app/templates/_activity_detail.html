@@ -1,0 +1,43 @@
+<style>
+  .detail-close { float: right; cursor: pointer; font-size: 1.1em; background: none; border: none; padding: 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.82em; background: #e5e7eb; margin: 0 4px 4px 0; }
+  #act-map { height: 200px; border-radius: 4px; margin: 0.75em 0; }
+</style>
+
+<button class="detail-close" onclick="document.getElementById('session-detail').style.display='none'">✕</button>
+<h3>{{ activity.name }}</h3>
+
+<p>
+  <span class="badge">{{ activity.start_date.strftime("%-d %b %Y") }}</span>
+  <span class="badge">{{ activity.sport_type | title }}</span>
+  {% if activity.moving_time %}<span class="badge">{{ activity.moving_time // 60 }} min</span>{% endif %}
+  {% if activity.distance %}<span class="badge">{{ (activity.distance / 1000) | round(1) }} km</span>{% endif %}
+  {% if activity.average_heartrate %}<span class="badge">{{ activity.average_heartrate | int }} bpm avg</span>{% endif %}
+  {% if activity.total_elevation_gain %}<span class="badge">+{{ activity.total_elevation_gain | int }} m</span>{% endif %}
+</p>
+
+{% if activity.ai_summary %}
+<p>{{ activity.ai_summary }}</p>
+{% else %}
+<p style="color:#9ca3af;font-style:italic">No coaching summary available.</p>
+{% endif %}
+
+{% if gpx_coords_json %}
+<div id="act-map" data-coords='{{ gpx_coords_json | safe }}'></div>
+{% endif %}
+
+{% if hr_times_json %}
+<p style="font-size:0.85em;font-weight:600;margin:0.5em 0 0.25em">Heart Rate</p>
+<canvas id="act-hr"
+        data-times='{{ hr_times_json | safe }}'
+        data-values='{{ hr_values_json | safe }}'
+        style="max-height:120px"></canvas>
+{% endif %}
+
+{% if pace_times_json %}
+<p style="font-size:0.85em;font-weight:600;margin:0.5em 0 0.25em">Pace (min/km)</p>
+<canvas id="act-pace"
+        data-times='{{ pace_times_json | safe }}'
+        data-values='{{ pace_values_json | safe }}'
+        style="max-height:120px"></canvas>
+{% endif %}

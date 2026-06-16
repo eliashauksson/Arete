@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import delete as sqla_delete
 from sqlmodel import Session, select
 
-from app.claude_client import run_agentic_json
+from app.claude_client import generate_activity_summary, run_agentic_json
 from app.mcp_client import StravaMCPClient
 from app.models import Athlete, Goal, PlannedSession, StravaActivity, TrainingPlan
 
@@ -279,12 +279,14 @@ async def sync_strava_activities(
         )
         data = await run_agentic_json(mcp, prompt, effort="low")
 
+        to_summarise: list[StravaActivity] = []
         for item in data.get("activities", []):
             try:
                 strava_id = int(item["strava_id"])
             except (KeyError, TypeError, ValueError):
                 continue
             existing = db.exec(select(StravaActivity).where(StravaActivity.strava_id == strava_id)).first()
+            is_new = existing is None
             if existing is None:
                 existing = StravaActivity(
                     athlete_id=athlete_id,
@@ -309,11 +311,24 @@ async def sync_strava_activities(
             existing.relative_effort = item.get("relative_effort")
             existing.raw_json = json.dumps(item)
             db.add(existing)
+            if is_new:
+                to_summarise.append(existing)
 
         if athlete is not None:
             athlete.last_strava_sync = now
             db.add(athlete)
         db.commit()
+
+        # Generate AI coaching summaries for newly synced activities.
+        for act in to_summarise:
+            db.refresh(act)
+            try:
+                act.ai_summary = await generate_activity_summary(act)
+                db.add(act)
+            except Exception as exc:
+                print(f"[claude] summary failed for strava_id={act.strava_id}: {exc}")
+        if to_summarise:
+            db.commit()
     else:
         print(f"[strava-sync] using cache, synced {now - athlete.last_strava_sync} ago")
 

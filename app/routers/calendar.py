@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.claude_client import generate_activity_summary, mcp_result_to_text
 from app.db import get_session
 from app.mcp_client import strava_mcp
 from app.models import Athlete, PlannedSession, StravaActivity, TrainingPlan
@@ -111,6 +112,85 @@ async def session_detail(request: Request, session_id: int, db: Session = Depend
             structure = []
     return templates.TemplateResponse(
         request, "_session_detail.html", {"session": session_obj, "structure": structure}
+    )
+
+
+@router.get("/calendar/activity/{activity_id}", response_class=HTMLResponse)
+async def activity_detail(request: Request, activity_id: int, db: Session = Depends(get_session)):
+    activity = db.get(StravaActivity, activity_id)
+    if activity is None:
+        return HTMLResponse("<p>Activity not found.</p>", status_code=404)
+
+    changed = False
+
+    # Lazy-fetch GPS and HR/pace streams on first view; cache in DB forever.
+    if activity.gpx_data is None:
+        try:
+            result = await strava_mcp.call_tool(
+                "get-activity-streams",
+                {"id": activity.strava_id, "types": ["time", "latlng", "heartrate", "velocity_smooth"], "resolution": "low"},
+            )
+            stream = json.loads(mcp_result_to_text(result))
+            data = stream.get("data", {})
+
+            activity.gpx_data = json.dumps(data["latlng"]) if data.get("latlng") else "[]"
+
+            if data.get("heartrate") and data.get("time"):
+                activity.hr_data = json.dumps({"times": data["time"], "values": data["heartrate"]})
+
+            if data.get("velocity_smooth") and data.get("time"):
+                vel = data["velocity_smooth"]
+                pace = [round(1000 / (v * 60), 2) if v and v > 0.5 else None for v in vel]
+                activity.pace_data = json.dumps({"times": data["time"], "values": pace})
+
+            changed = True
+        except Exception as exc:
+            print(f"[strava] stream fetch failed for strava_id={activity.strava_id}: {exc}")
+
+    # Generate AI summary on first view if sync didn't already do it.
+    if activity.ai_summary is None:
+        try:
+            activity.ai_summary = await generate_activity_summary(activity)
+            changed = True
+        except Exception as exc:
+            print(f"[claude] on-demand summary failed for strava_id={activity.strava_id}: {exc}")
+
+    if changed:
+        db.add(activity)
+        db.commit()
+        db.refresh(activity)
+
+    # Pre-serialise to JSON strings so the template can use | safe without tojson filter.
+    gpx_coords_json = None
+    if activity.gpx_data:
+        coords = json.loads(activity.gpx_data)
+        gpx_coords_json = json.dumps(coords) if coords else None
+
+    hr_times_json = hr_values_json = None
+    if activity.hr_data:
+        s = json.loads(activity.hr_data)
+        if s.get("values"):
+            hr_times_json = json.dumps(s["times"])
+            hr_values_json = json.dumps(s["values"])
+
+    pace_times_json = pace_values_json = None
+    if activity.pace_data:
+        s = json.loads(activity.pace_data)
+        if s.get("values"):
+            pace_times_json = json.dumps(s["times"])
+            pace_values_json = json.dumps(s["values"])
+
+    return templates.TemplateResponse(
+        request,
+        "_activity_detail.html",
+        {
+            "activity": activity,
+            "gpx_coords_json": gpx_coords_json,
+            "hr_times_json": hr_times_json,
+            "hr_values_json": hr_values_json,
+            "pace_times_json": pace_times_json,
+            "pace_values_json": pace_values_json,
+        },
     )
 
 

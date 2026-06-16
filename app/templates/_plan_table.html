@@ -1,3 +1,4 @@
+<div class="card" style="padding:0">
 <table>
   <thead>
     <tr>
@@ -11,14 +12,26 @@
   </thead>
   <tbody>
   {% for s in sessions %}
-  <tr>
+  <tr{% if s.sport_type == 'rest' %} style="opacity:0.5"{% endif %}>
     <td>{{ s.date }}</td>
-    <td>{{ s.date.strftime("%a") }}</td>
-    <td>{{ s.sport_type }}</td>
+    <td style="color:var(--muted)">{{ s.date.strftime("%a") }}</td>
+    <td>
+      {% if s.sport_type != 'rest' %}
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:
+        {% if s.sport_type == 'run' %}#FC4C02
+        {% elif s.sport_type == 'bike' %}#16a34a
+        {% elif s.sport_type == 'swim' %}#0891b2
+        {% elif s.sport_type == 'strength' %}#9333ea
+        {% else %}#3A5A7A{% endif %};
+        margin-right:5px;vertical-align:middle"></span>
+      {% endif %}
+      {{ s.sport_type }}
+    </td>
     <td>{{ s.title }}</td>
-    <td>{% if s.planned_duration_min %}{{ s.planned_duration_min }} min{% else %}—{% endif %}</td>
-    <td>{% if s.planned_load %}{{ s.planned_load | round(0) | int }}{% else %}—{% endif %}</td>
+    <td style="color:var(--muted)">{% if s.planned_duration_min %}{{ s.planned_duration_min }} min{% else %}—{% endif %}</td>
+    <td style="color:var(--muted)">{% if s.planned_load %}{{ s.planned_load | round(0) | int }}{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+</div>

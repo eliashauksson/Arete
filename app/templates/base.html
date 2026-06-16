@@ -1,19 +1,351 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>{% block title %}Arete{% endblock %}</title>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Arete{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    /* ── Design tokens ── */
+    :root {
+      --bg:         #0D1B2A;
+      --surface:    #152436;
+      --surface2:   #1A2E44;
+      --border:     #1E3A52;
+      --accent:     #FC4C02;
+      --accent-dim: rgba(252,76,2,0.12);
+      --text:       #FFFFFF;
+      --muted:      #6B8FAD;
+      --secondary:  #3A5A7A;
+      --nav-h:      56px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+      min-height: 100vh;
+    }
+
+    /* ── Typography ── */
+    h1, h2, h3, h4 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; }
+    h1 { font-size: 1.9em; margin-bottom: 0.6em; letter-spacing: -0.01em; }
+    h2 { font-size: 1.25em; margin: 1.5em 0 0.5em; color: var(--text); }
+    h3 { font-size: 1.05em; margin-bottom: 0.4em; }
+    h4 { font-size: 0.78em; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-family: inherit; font-weight: 600; }
+    p { margin-bottom: 0.75em; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+    pre { background: var(--surface2); padding: 1em; border-radius: 4px; font-size: 0.82em; white-space: pre-wrap; color: var(--muted); line-height: 1.5; }
+
+    /* ── Nav ── */
+    .site-nav {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: var(--nav-h);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 2em;
+      z-index: 900;
+    }
+    .site-nav .wordmark {
+      font-family: Georgia, serif;
+      font-size: 1.3em;
+      font-weight: bold;
+      color: var(--text);
+      letter-spacing: 0.04em;
+      text-decoration: none;
+      margin-right: auto;
+    }
+    .site-nav .wordmark:hover { text-decoration: none; }
+    .nav-links { display: flex; gap: 2em; }
+    .nav-links a {
+      color: var(--muted);
+      font-size: 0.88em;
+      letter-spacing: 0.04em;
+      padding-bottom: 3px;
+      border-bottom: 2px solid transparent;
+      text-decoration: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    .nav-links a.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Layout ── */
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: calc(var(--nav-h) + 2.5em) 2em 5em;
+    }
+
+    /* ── Buttons ── */
+    button, .btn {
+      display: inline-flex; align-items: center; gap: 0.4em;
+      padding: 0.5em 1.2em;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font-family: inherit; font-size: 0.88em;
+      cursor: pointer; text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+      line-height: 1.4;
+    }
+    button:hover, .btn:hover { background: var(--surface2); border-color: var(--secondary); text-decoration: none; }
+    .btn-primary, button.primary {
+      background: var(--accent); border-color: var(--accent); color: white;
+    }
+    .btn-primary:hover, button.primary:hover { background: #e04400; border-color: #e04400; }
+    .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+    .btn-ghost:hover { background: var(--surface); border-color: var(--border); color: var(--text); }
+
+    /* ── Inputs ── */
+    input[type=text], input[type=date], input[type=number], input[type=email], textarea, select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit; font-size: 0.9em;
+      padding: 0.55em 0.8em;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none; border-color: var(--secondary);
+    }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
+    label { display: block; font-size: 0.8em; color: var(--muted); margin-bottom: 0.3em; letter-spacing: 0.03em; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25em 1.5em;
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 3px;
+      font-size: 0.78em;
+      background: var(--surface2);
+      color: var(--muted);
+      margin: 0 4px 4px 0;
+      letter-spacing: 0.02em;
+    }
+    .badge.accent   { background: var(--accent-dim); color: var(--accent); }
+    .badge.zone-1   { background: rgba(58,90,122,0.3);  color: #7BB8E0; }
+    .badge.zone-2   { background: rgba(22,163,74,0.2);  color: #4ade80; }
+    .badge.zone-3   { background: rgba(234,179,8,0.2);  color: #facc15; }
+    .badge.zone-4   { background: rgba(234,88,12,0.25); color: #fb923c; }
+    .badge.zone-5   { background: rgba(220,38,38,0.25); color: #f87171; }
+
+    /* ── Stat cards ── */
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; margin-bottom: 2em; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1.25em 1.5em; }
+    .stat-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.4em; }
+    .stat-value { font-size: 2.4em; font-family: Georgia, serif; line-height: 1; }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.muted  { color: var(--muted); }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+    th {
+      text-align: left;
+      padding: 0.6em 0.8em;
+      font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--muted); border-bottom: 1px solid var(--border);
+      font-weight: 600; font-family: inherit;
+    }
+    td { padding: 0.65em 0.8em; border-bottom: 1px solid var(--border); color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    /* ── Detail slide-in panel ── */
+    #session-detail {
+      position: fixed;
+      right: 0; top: 0;
+      width: 400px; height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      padding: 2em 1.75em;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto;
+      z-index: 950;
+    }
+    #session-detail.open { transform: translateX(0); }
+
+    #detail-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 940;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    #detail-backdrop.active { opacity: 1; pointer-events: auto; }
+
+    .detail-close {
+      float: right;
+      background: none; border: none;
+      color: var(--muted); font-size: 1.2em;
+      cursor: pointer; padding: 0; line-height: 1;
+    }
+    .detail-close:hover { color: var(--text); background: none; border: none; }
+
+    /* ── Workout structure timeline ── */
+    .timeline {
+      display: flex; height: 34px;
+      border-radius: 4px; overflow: hidden;
+      gap: 2px; margin: 0.75em 0 1.25em;
+    }
+    .tl-block {
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.67em; font-weight: 700; color: white;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      min-width: 16px; overflow: hidden;
+    }
+    .tl-block.warmup    { background: var(--secondary); }
+    .tl-block.main      { background: var(--accent); }
+    .tl-block.interval  { background: var(--accent); opacity: 0.85; }
+    .tl-block.threshold { background: #d94100; }
+    .tl-block.tempo     { background: #c03800; }
+    .tl-block.cooldown  { background: #1E3A52; }
+    .tl-block.recovery  { background: var(--secondary); opacity: 0.55; }
+    .tl-block.rest      { background: var(--border); }
+
+    .block-list { margin: 0 0 1.25em; }
+    .block-row {
+      display: flex; gap: 1em; align-items: baseline;
+      padding: 0.45em 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em;
+    }
+    .block-row:last-child { border-bottom: none; }
+    .block-type { font-weight: 600; text-transform: capitalize; min-width: 80px; color: var(--text); }
+    .block-dur  { color: var(--muted); min-width: 50px; }
+    .block-note { color: var(--muted); font-size: 0.92em; }
+
+    /* ── Adjust form ── */
+    #adjust-form textarea { margin-bottom: 0.5em; }
+    #adjust-status { font-size: 0.85em; color: var(--muted); margin-top: 0.4em; }
+
+    /* ── Activity map & charts ── */
+    #act-map { height: 200px; border-radius: 4px; margin: 0.75em 0; }
+
+    /* ── Setup — goal cards ── */
+    .goal-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.7em;
+      margin-bottom: 1.75em;
+    }
+    .goal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.9em 0.75em;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .goal-card:hover { border-color: var(--secondary); background: var(--surface2); }
+    .goal-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+    .gc-distance { display: block; font-size: 1.35em; font-family: Georgia, serif; margin-bottom: 0.15em; }
+    .gc-label    { font-size: 0.75em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── Setup — form layout ── */
+    .form-group { margin-bottom: 1.25em; }
+    .setup-form { max-width: 520px; }
+    .strava-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25em 1.5em;
+      margin-bottom: 2em;
+      display: flex; flex-direction: column; gap: 0.75em;
+    }
+    .strava-section p { margin: 0; color: var(--muted); font-size: 0.9em; }
+
+    /* ── Setup steps ── */
+    .steps {
+      display: flex; gap: 0;
+      margin-bottom: 2.5em;
+      border-radius: 6px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .step {
+      flex: 1; padding: 0.65em 1em;
+      font-size: 0.82em; color: var(--muted);
+      background: var(--surface);
+      display: flex; align-items: center; gap: 0.55em;
+      border-right: 1px solid var(--border);
+    }
+    .step:last-child { border-right: none; }
+    .step-num {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--border); color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.78em; flex-shrink: 0;
+    }
+    .step.active { color: var(--text); background: var(--surface2); }
+    .step.active .step-num { background: var(--accent); color: white; }
+    .step.done .step-num { background: var(--secondary); color: white; }
+
+    /* ── Refine / chat ── */
+    .chat-history { margin: 0 0 1.5em; }
+    .msg-user {
+      background: var(--accent-dim);
+      border-left: 3px solid var(--accent);
+      padding: 0.65em 1em;
+      margin-bottom: 0.4em;
+      border-radius: 0 4px 4px 0;
+    }
+    .msg-user .msg-label { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 0.2em; font-weight: 600; }
+    .msg-assistant {
+      background: var(--surface);
+      border-left: 3px solid var(--secondary);
+      padding: 0.65em 1em;
+      margin-bottom: 1em;
+      border-radius: 0 4px 4px 0;
+      color: var(--muted);
+    }
+    .msg-error { border-left-color: #dc2626; color: #f87171; }
+    .htmx-indicator { display: none; color: var(--muted); font-size: 0.88em; margin-left: 0.5em; }
+    .htmx-request .htmx-indicator { display: inline; }
+    .htmx-indicator.htmx-request { display: inline; }
+
+    /* ── Error / notice ── */
+    .notice-error {
+      background: rgba(220,38,38,0.1);
+      border: 1px solid rgba(220,38,38,0.3);
+      border-radius: 4px;
+      padding: 0.65em 1em;
+      color: #f87171;
+      font-size: 0.9em;
+      margin-bottom: 1em;
+    }
+  </style>
 </head>
 <body>
-    <nav>
-        <a href="/setup">Setup</a> |
-        <a href="/dashboard">Dashboard</a> |
-        <a href="/calendar">Calendar</a>
-    </nav>
-    <hr>
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+  <nav class="site-nav">
+    <a href="/" class="wordmark">Arete</a>
+    <div class="nav-links">
+      <a href="/dashboard" class="{{ 'active' if request.url.path.startswith('/dashboard') else '' }}">Dashboard</a>
+      <a href="/calendar"  class="{{ 'active' if request.url.path.startswith('/calendar') else '' }}">Calendar</a>
+      <a href="/setup"     class="{{ 'active' if request.url.path.startswith('/setup') else '' }}">Setup</a>
+    </div>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

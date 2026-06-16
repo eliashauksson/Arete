@@ -1,13 +1,7 @@
-<style>
-  .detail-close { float: right; cursor: pointer; font-size: 1.1em; background: none; border: none; padding: 0; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.82em; background: #e5e7eb; margin: 0 4px 4px 0; }
-  #act-map { height: 200px; border-radius: 4px; margin: 0.75em 0; }
-</style>
+<button class="detail-close" onclick="closePanel()">✕</button>
+<h3 style="margin-bottom:0.6em;font-size:1.3em;padding-right:2em">{{ activity.name }}</h3>
 
-<button class="detail-close" onclick="document.getElementById('session-detail').style.display='none'">✕</button>
-<h3>{{ activity.name }}</h3>
-
-<p>
+<p style="margin-bottom:1em">
   <span class="badge">{{ activity.start_date.strftime("%-d %b %Y") }}</span>
   <span class="badge">{{ activity.sport_type | title }}</span>
   {% if activity.moving_time %}<span class="badge">{{ activity.moving_time // 60 }} min</span>{% endif %}
@@ -17,9 +11,7 @@
 </p>
 
 {% if activity.ai_summary %}
-<p>{{ activity.ai_summary }}</p>
-{% else %}
-<p style="color:#9ca3af;font-style:italic">No coaching summary available.</p>
+<p style="color:var(--muted);font-size:0.92em;margin-bottom:1.25em">{{ activity.ai_summary }}</p>
 {% endif %}
 
 {% if gpx_coords_json %}
@@ -27,17 +19,17 @@
 {% endif %}
 
 {% if hr_times_json %}
-<p style="font-size:0.85em;font-weight:600;margin:0.5em 0 0.25em">Heart Rate</p>
+<h4 style="margin:0.75em 0 0.35em">Heart Rate</h4>
 <canvas id="act-hr"
         data-times='{{ hr_times_json | safe }}'
         data-values='{{ hr_values_json | safe }}'
-        style="max-height:120px"></canvas>
+        style="max-height:110px"></canvas>
 {% endif %}
 
 {% if pace_times_json %}
-<p style="font-size:0.85em;font-weight:600;margin:0.5em 0 0.25em">Pace (min/km)</p>
+<h4 style="margin:0.75em 0 0.35em">Pace (min/km)</h4>
 <canvas id="act-pace"
         data-times='{{ pace_times_json | safe }}'
         data-values='{{ pace_values_json | safe }}'
-        style="max-height:120px"></canvas>
+        style="max-height:110px"></canvas>
 {% endif %}

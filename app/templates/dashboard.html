@@ -4,39 +4,128 @@
 <h1>Dashboard</h1>
 
 {% if not weeks %}
-<p><em>No active training plan yet — generate one on the Setup page.</em></p>
+<div class="card" style="text-align:center;padding:3em">
+  <p style="color:var(--muted);margin-bottom:1em">No active training plan yet.</p>
+  <a href="/setup" class="btn btn-primary">Set up a plan →</a>
+</div>
 {% else %}
-<canvas id="load-chart" height="120"></canvas>
 
-<h2>Weekly compliance</h2>
-<ul>
-    {% for w in weeks %}
-    <li>
-        Week of {{ w.week_start }}: planned {{ w.planned_load }}, actual {{ w.actual_load }}
-        — {% if w.compliance is not none %}{{ w.compliance }}% compliance{% else %}—{% endif %}
-    </li>
-    {% endfor %}
-</ul>
+{% set ns = namespace(planned=0.0, actual=0.0, comp_sum=0.0, comp_n=0) %}
+{% for w in weeks %}
+  {% set ns.planned = ns.planned + w.planned_load %}
+  {% set ns.actual  = ns.actual  + w.actual_load  %}
+  {% if w.compliance is not none %}
+    {% set ns.comp_sum = ns.comp_sum + w.compliance %}
+    {% set ns.comp_n   = ns.comp_n   + 1 %}
+  {% endif %}
+{% endfor %}
 
-<form method="post" action="/dashboard/re-adjust">
-    <button type="submit">Re-adjust upcoming plan based on last week</button>
-</form>
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total Planned Load</div>
+    <div class="stat-value">{{ ns.planned | round(0) | int }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Actual Load</div>
+    <div class="stat-value">{{ ns.actual | round(0) | int }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Avg Compliance</div>
+    {% if ns.comp_n > 0 %}
+      {% set avg_comp = (ns.comp_sum / ns.comp_n) | round(0) | int %}
+      <div class="stat-value {% if avg_comp >= 80 %}accent{% else %}muted{% endif %}">{{ avg_comp }}%</div>
+    {% else %}
+      <div class="stat-value muted">—</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:2em;padding:1.5em">
+  <canvas id="load-chart" height="110"></canvas>
+</div>
+
+<h2>Weekly breakdown</h2>
+<div class="card" style="padding:0">
+  <table>
+    <thead>
+      <tr>
+        <th>Week</th>
+        <th>Planned</th>
+        <th>Actual</th>
+        <th>Compliance</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for w in weeks %}
+      <tr>
+        <td>{{ w.week_start }}</td>
+        <td>{{ w.planned_load }}</td>
+        <td>{{ w.actual_load }}</td>
+        <td>
+          {% if w.compliance is not none %}
+            <span style="color:{% if w.compliance >= 80 %}var(--accent){% elif w.compliance >= 60 %}var(--text){% else %}var(--muted){% endif %}">
+              {{ w.compliance }}%
+            </span>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:1.5em">
+  <form method="post" action="/dashboard/re-adjust" style="display:inline">
+    <button type="submit">Re-adjust plan based on last week</button>
+  </form>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 <script>
-    var weeks = {{ weeks_json | safe }};
-    var ctx = document.getElementById("load-chart");
-    new Chart(ctx, {
-        type: "bar",
-        data: {
-            labels: weeks.map(function (w) { return w.week_start; }),
-            datasets: [
-                { label: "Planned load", data: weeks.map(function (w) { return w.planned_load; }), backgroundColor: "#2563eb" },
-                { label: "Actual load", data: weeks.map(function (w) { return w.actual_load; }), backgroundColor: "#16a34a" }
-            ]
+(function () {
+  var weeks = {{ weeks_json | safe }};
+  Chart.defaults.color = '#6B8FAD';
+  Chart.defaults.borderColor = '#1E3A52';
+  var ctx = document.getElementById('load-chart');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: weeks.map(function (w) { return w.week_start; }),
+      datasets: [
+        {
+          label: 'Planned',
+          data: weeks.map(function (w) { return w.planned_load; }),
+          backgroundColor: '#FC4C02',
+          borderRadius: 3,
+          borderSkipped: false
         },
-        options: { responsive: true }
-    });
+        {
+          label: 'Actual',
+          data: weeks.map(function (w) { return w.actual_load; }),
+          backgroundColor: 'rgba(255,255,255,0.85)',
+          borderRadius: 3,
+          borderSkipped: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#6B8FAD', font: { size: 12 } } }
+      },
+      scales: {
+        x: {
+          grid: { color: '#1E3A52' },
+          ticks: { color: '#6B8FAD', font: { size: 11 } }
+        },
+        y: {
+          grid: { color: '#1E3A52' },
+          ticks: { color: '#6B8FAD', font: { size: 11 } }
+        }
+      }
+    }
+  });
+})();
 </script>
 {% endif %}
 {% endblock %}

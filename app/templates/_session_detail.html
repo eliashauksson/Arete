@@ -1,36 +1,32 @@
-<style>
-  .detail-close { float: right; cursor: pointer; font-size: 1.1em; background: none; border: none; padding: 0; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.82em; background: #e5e7eb; margin: 0 4px 4px 0; }
-  .badge.zone { background: #dbeafe; }
-  .structure-list { margin: 0.5em 0 1em; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden; }
-  .structure-block { display: flex; gap: 1em; padding: 6px 10px; border-bottom: 1px solid #f3f4f6; font-size: 0.9em; }
-  .structure-block:last-child { border-bottom: none; }
-  .block-type { font-weight: 600; text-transform: capitalize; min-width: 90px; }
-  .block-dur { color: #6b7280; min-width: 55px; }
-  .block-note { color: #374151; }
-</style>
+<button class="detail-close" onclick="closePanel()">✕</button>
+<h3 style="margin-bottom:0.6em;font-size:1.3em;padding-right:2em">{{ session.title }}</h3>
 
-<button class="detail-close" onclick="document.getElementById('session-detail').style.display='none'">✕</button>
-<h3>{{ session.title }}</h3>
-
-<p>
+<p style="margin-bottom:1em">
   <span class="badge">{{ session.date.strftime("%-d %b %Y") }}</span>
   <span class="badge">{{ session.date.strftime("%A") }}</span>
   <span class="badge">{{ session.sport_type }}</span>
   {% if session.planned_duration_min %}<span class="badge">{{ session.planned_duration_min }} min</span>{% endif %}
-  {% if session.hr_zone %}<span class="badge zone">Zone {{ session.hr_zone }}</span>{% endif %}
+  {% if session.hr_zone %}<span class="badge zone-{{ session.hr_zone }}">Zone {{ session.hr_zone }}</span>{% endif %}
   {% if session.planned_load %}<span class="badge">Load {{ session.planned_load | int }}</span>{% endif %}
 </p>
 
 {% if session.description %}
-<p>{{ session.description }}</p>
+<p style="color:var(--muted);font-size:0.92em;margin-bottom:1.25em">{{ session.description }}</p>
 {% endif %}
 
 {% if structure %}
-<h4 style="margin-bottom:0.25em">Workout structure</h4>
-<div class="structure-list">
+<h4 style="margin-bottom:0.5em">Workout structure</h4>
+<div class="timeline">
+  {% set total_dur = structure | sum(attribute='duration_min') %}
   {% for block in structure %}
-  <div class="structure-block">
+  <div class="tl-block {{ block.type }}" style="flex:{{ block.duration_min }}" title="{{ block.type }} — {{ block.duration_min }} min{% if block.note %}: {{ block.note }}{% endif %}">
+    {% if block.duration_min >= 12 %}{{ block.type[:3] }}{% endif %}
+  </div>
+  {% endfor %}
+</div>
+<div class="block-list">
+  {% for block in structure %}
+  <div class="block-row">
     <span class="block-type">{{ block.type }}</span>
     <span class="block-dur">{{ block.duration_min }} min</span>
     {% if block.note %}<span class="block-note">{{ block.note }}</span>{% endif %}
@@ -39,10 +35,11 @@
 </div>
 {% endif %}
 
-<h4 style="margin-bottom:0.25em">Adjust this session</h4>
+<h4 style="margin-bottom:0.6em">Adjust this session</h4>
 <form id="adjust-form" data-session-id="{{ session.id }}">
-    <textarea name="instruction" rows="2" style="width:100%;box-sizing:border-box"
-              placeholder="e.g. I'm injured, swap this week for easy rest days" required></textarea>
-    <button type="submit">Adjust via Claude</button>
+  <textarea name="instruction" rows="2"
+    placeholder="e.g. I'm feeling tired, make this easier" required
+    style="margin-bottom:0.5em"></textarea>
+  <button type="submit" class="btn-primary">Adjust via Claude</button>
 </form>
 <p id="adjust-status"></p>

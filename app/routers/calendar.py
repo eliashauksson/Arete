@@ -61,7 +61,7 @@ async def calendar_events(start: str, end: str, db: Session = Depends(get_sessio
                 "start": s.date.isoformat(),
                 "allDay": True,
                 "color": color,
-                "classNames": ["planned"],
+                "classNames": ["planned", f"sport-{s.sport_type}"],
                 "extendedProps": {"sessionId": s.id, "kind": "planned"},
             }
         )

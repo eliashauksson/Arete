@@ -5,123 +5,192 @@
 
 <div id="calendar"></div>
 
-<div id="session-detail" style="display:none; border:1px solid #ccc; padding:1em; margin-top:1em;"></div>
+<div id="detail-backdrop"></div>
+<div id="session-detail"></div>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
+
 <style>
-  .fc-event.actual { opacity: .55; border-style: dashed; }
+  /* ── FullCalendar dark theme ── */
+  :root {
+    --fc-border-color:                #1E3A52;
+    --fc-button-bg-color:             #152436;
+    --fc-button-border-color:         #1E3A52;
+    --fc-button-hover-bg-color:       #1A2E44;
+    --fc-button-hover-border-color:   #3A5A7A;
+    --fc-button-active-bg-color:      #FC4C02;
+    --fc-button-active-border-color:  #FC4C02;
+    --fc-today-bg-color:              rgba(252,76,2,0.06);
+    --fc-page-bg-color:               #0D1B2A;
+    --fc-neutral-bg-color:            #152436;
+    --fc-list-event-hover-bg-color:   #1A2E44;
+    --fc-event-bg-color:              #FC4C02;
+    --fc-event-border-color:          #FC4C02;
+    --fc-event-text-color:            #ffffff;
+  }
+
+  .fc { color: #FFFFFF; }
+  .fc .fc-toolbar-title { font-family: Georgia, serif; font-size: 1.2em !important; }
+  .fc .fc-col-header-cell-cushion {
+    color: #6B8FAD; font-size: 0.78em;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    text-decoration: none;
+  }
+  .fc .fc-daygrid-day-number { color: #6B8FAD; text-decoration: none; font-size: 0.88em; }
+  .fc .fc-day-today .fc-daygrid-day-number { color: #FC4C02; font-weight: 700; }
+  .fc .fc-button { font-family: inherit !important; font-size: 0.82em !important; padding: 0.35em 0.8em !important; }
+  .fc .fc-button-primary { background: #152436 !important; border-color: #1E3A52 !important; color: white !important; }
+  .fc .fc-button-primary:not(:disabled):hover { background: #1A2E44 !important; border-color: #3A5A7A !important; }
+  .fc .fc-button-primary.fc-button-active,
+  .fc .fc-button-primary:not(:disabled):active { background: #FC4C02 !important; border-color: #FC4C02 !important; }
+
+  /* planned events — orange pills */
+  .fc-event.planned {
+    background: #FC4C02 !important;
+    border-color: #FC4C02 !important;
+    color: white !important;
+    font-size: 0.8em; border-radius: 3px;
+  }
+  /* rest days — muted */
+  .fc-event.planned.sport-rest {
+    background: rgba(30,58,82,0.7) !important;
+    border-color: #1E3A52 !important;
+    color: #6B8FAD !important;
+  }
+  /* completed strava activities — white pills */
+  .fc-event.actual {
+    background: rgba(255,255,255,0.12) !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+    color: white !important;
+    font-size: 0.8em; border-radius: 3px;
+    opacity: 1 !important;
+  }
 </style>
+
 <script>
-function initActivityDetail() {
-    var mapEl = document.getElementById('act-map');
-    if (mapEl && mapEl.dataset.coords) {
-        var coords = JSON.parse(mapEl.dataset.coords);
-        if (coords.length > 0) {
-            var map = L.map(mapEl);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(map);
-            var line = L.polyline(coords, { color: '#2563eb', weight: 3 }).addTo(map);
-            map.fitBounds(line.getBounds());
-            setTimeout(function () { map.invalidateSize(); }, 50);
-        }
-    }
+Chart.defaults.color = '#6B8FAD';
+Chart.defaults.borderColor = '#1E3A52';
 
-    function makeChart(id, borderColor, bgColor, reversed) {
-        var el = document.getElementById(id);
-        if (!el || !el.dataset.times) return;
-        var times = JSON.parse(el.dataset.times);
-        var values = JSON.parse(el.dataset.values);
-        var step = Math.max(1, Math.floor(times.length / 10));
-        var labels = times.map(function (t, i) {
-            return i % step === 0 ? Math.round(t / 60) + 'm' : '';
-        });
-        new Chart(el, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: values,
-                    borderColor: borderColor,
-                    backgroundColor: bgColor,
-                    borderWidth: 1.5,
-                    pointRadius: 0,
-                    fill: true,
-                    tension: 0.3,
-                    spanGaps: false
-                }]
-            },
-            options: {
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { ticks: { maxTicksLimit: 8, font: { size: 10 } } },
-                    y: { reverse: reversed || false, ticks: { font: { size: 10 } } }
-                }
-            }
-        });
-    }
-
-    makeChart('act-hr', '#dc2626', 'rgba(220,38,38,0.08)', false);
-    makeChart('act-pace', '#2563eb', 'rgba(37,99,235,0.08)', true);
+function openPanel(html) {
+  var panel = document.getElementById('session-detail');
+  var backdrop = document.getElementById('detail-backdrop');
+  panel.innerHTML = html;
+  panel.classList.add('open');
+  backdrop.classList.add('active');
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-    var calendarEl = document.getElementById("calendar");
-    var detailEl = document.getElementById("session-detail");
+function closePanel() {
+  var panel = document.getElementById('session-detail');
+  var backdrop = document.getElementById('detail-backdrop');
+  panel.classList.remove('open');
+  backdrop.classList.remove('active');
+}
 
-    var calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: "dayGridMonth",
-        events: "/calendar/events",
-        eventClick: function (info) {
-            var props = info.event.extendedProps;
-            if (props.kind === "planned") {
-                fetch("/calendar/session/" + props.sessionId)
-                    .then(function (r) { return r.text(); })
-                    .then(function (html) {
-                        detailEl.innerHTML = html;
-                        detailEl.style.display = "block";
-                    });
-            } else if (props.kind === "actual") {
-                detailEl.innerHTML = '<p style="color:#6b7280">Loading activity…</p>';
-                detailEl.style.display = "block";
-                fetch("/calendar/activity/" + props.activityId)
-                    .then(function (r) { return r.text(); })
-                    .then(function (html) {
-                        detailEl.innerHTML = html;
-                        initActivityDetail();
-                    });
-            }
+function initActivityDetail() {
+  var mapEl = document.getElementById('act-map');
+  if (mapEl && mapEl.dataset.coords) {
+    var coords = JSON.parse(mapEl.dataset.coords);
+    if (coords.length > 0) {
+      var map = L.map(mapEl);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd', maxZoom: 20
+      }).addTo(map);
+      var line = L.polyline(coords, { color: '#FC4C02', weight: 3 }).addTo(map);
+      map.fitBounds(line.getBounds());
+      setTimeout(function () { map.invalidateSize(); }, 50);
+    }
+  }
+
+  function makeChart(id, borderColor, bgColor, reversed) {
+    var el = document.getElementById(id);
+    if (!el || !el.dataset.times) return;
+    var times  = JSON.parse(el.dataset.times);
+    var values = JSON.parse(el.dataset.values);
+    var step = Math.max(1, Math.floor(times.length / 10));
+    var labels = times.map(function (t, i) {
+      return i % step === 0 ? Math.round(t / 60) + 'm' : '';
+    });
+    new Chart(el, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          borderColor: borderColor,
+          backgroundColor: bgColor,
+          borderWidth: 1.5, pointRadius: 0,
+          fill: true, tension: 0.3, spanGaps: false
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#1E3A52' }, ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#6B8FAD' } },
+          y: { reverse: reversed || false, grid: { color: '#1E3A52' }, ticks: { font: { size: 10 }, color: '#6B8FAD' } }
         }
+      }
     });
-    calendar.render();
+  }
 
-    detailEl.addEventListener("submit", function (e) {
-        if (e.target.id !== "adjust-form") return;
-        e.preventDefault();
-        var form = e.target;
-        var sessionId = form.dataset.sessionId;
-        var instruction = form.instruction.value;
-        var statusEl = document.getElementById("adjust-status");
-        statusEl.textContent = "Adjusting via Claude (this can take a while)...";
-        fetch("/calendar/session/" + sessionId + "/adjust", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ instruction: instruction })
-        })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (data.ok) {
-                    statusEl.textContent = "Done.";
-                    detailEl.style.display = "none";
-                    calendar.refetchEvents();
-                } else {
-                    statusEl.textContent = "Error: " + data.error;
-                }
-            });
-    });
+  makeChart('act-hr',   '#FC4C02', 'rgba(252,76,2,0.1)',       false);
+  makeChart('act-pace', '#3A5A7A', 'rgba(58,90,122,0.15)',     true);
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var detailEl   = document.getElementById('session-detail');
+  var backdropEl = document.getElementById('detail-backdrop');
+
+  backdropEl.addEventListener('click', closePanel);
+
+  var calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+    initialView: 'dayGridMonth',
+    events: '/calendar/events',
+    eventClick: function (info) {
+      var props = info.event.extendedProps;
+      if (props.kind === 'planned') {
+        fetch('/calendar/session/' + props.sessionId)
+          .then(function (r) { return r.text(); })
+          .then(function (html) { openPanel(html); });
+      } else if (props.kind === 'actual') {
+        openPanel('<p style="color:var(--muted);padding:1em">Loading activity&hellip;</p>');
+        fetch('/calendar/activity/' + props.activityId)
+          .then(function (r) { return r.text(); })
+          .then(function (html) {
+            detailEl.innerHTML = html;
+            initActivityDetail();
+          });
+      }
+    }
+  });
+  calendar.render();
+
+  detailEl.addEventListener('submit', function (e) {
+    if (e.target.id !== 'adjust-form') return;
+    e.preventDefault();
+    var form = e.target;
+    var sessionId  = form.dataset.sessionId;
+    var instruction = form.instruction.value;
+    var statusEl   = document.getElementById('adjust-status');
+    statusEl.textContent = 'Adjusting via Claude…';
+    fetch('/calendar/session/' + sessionId + '/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction: instruction })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          closePanel();
+          calendar.refetchEvents();
+        } else {
+          statusEl.textContent = 'Error: ' + data.error;
+        }
+      });
+  });
 });
 </script>
 {% endblock %}

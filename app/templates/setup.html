@@ -1,66 +1,124 @@
 {% extends "base.html" %}
 {% block title %}Setup — Arete{% endblock %}
 {% block content %}
-<h1>Setup</h1>
 
-<section>
-    <h2>Strava connection</h2>
-    <form hx-post="/setup/connect-strava" hx-target="#strava-result" hx-swap="innerHTML">
-        <button type="submit">Connect Strava</button>
-    </form>
-    <form hx-post="/setup/verify-connection" hx-target="#strava-result" hx-swap="innerHTML">
-        <button type="submit">Test Claude + Strava connection</button>
-    </form>
-    <pre id="strava-result"></pre>
-</section>
+<div class="steps">
+  <div class="step active"><span class="step-num">1</span> Connect &amp; Goal</div>
+  <div class="step"><span class="step-num">2</span> Refine Plan</div>
+  <div class="step"><span class="step-num">3</span> Start Training</div>
+</div>
 
-<section>
-    <h2>Goal</h2>
+<h1>Set up Arete</h1>
 
-    {% if error %}
-    <p style="color: red;">{{ error }}</p>
-    {% endif %}
+<!-- Strava connection -->
+<div class="strava-section">
+  <div style="display:flex;align-items:center;gap:0.75em">
+    <span style="font-family:Georgia;font-size:1.15em;color:var(--accent);font-weight:bold">Strava</span>
+    <span style="color:var(--muted);font-size:0.82em">training data integration</span>
+  </div>
+  <p>Connect your Strava account so Arete can read your recent activities and tailor the plan to your real fitness.</p>
+  <div style="display:flex;gap:0.6em;flex-wrap:wrap">
+    <button hx-post="/setup/connect-strava" hx-target="#strava-result" hx-swap="innerHTML">Connect Strava</button>
+    <button hx-post="/setup/verify-connection" hx-target="#strava-result" hx-swap="innerHTML" class="btn-ghost">Test connection</button>
+  </div>
+  <pre id="strava-result" style="display:none" class="strava-out"></pre>
+</div>
 
-    {% if goal %}
-    <p>
-        Current goal: <strong>{{ goal.race_name or "General fitness" }}</strong>
-        ({{ goal.race_distance or "distance not set" }}),
-        race date {{ goal.race_date or "not set" }},
-        {{ goal.weekly_hours or "?" }} hrs/week.
-        Submitting the form below will replace it with a new plan.
-    </p>
-    {% endif %}
+<!-- Goal form -->
+<div class="setup-form">
 
-    <form method="post" action="/setup/generate-plan">
-        <p>
-            <label>Race / goal name<br>
-                <input type="text" name="race_name" value="{{ goal.race_name if goal else '' }}">
-            </label>
-        </p>
-        <p>
-            <label>Race date<br>
-                <input type="date" name="race_date" value="{{ goal.race_date if goal else '' }}">
-            </label>
-        </p>
-        <p>
-            <label>Distance / race type<br>
-                <input type="text" name="race_distance" placeholder="e.g. marathon, 10k, 70.3"
-                       value="{{ goal.race_distance if goal else '' }}">
-            </label>
-        </p>
-        <p>
-            <label>Weekly hours available<br>
-                <input type="number" name="weekly_hours" step="0.5" min="0"
-                       value="{{ goal.weekly_hours if goal else '' }}">
-            </label>
-        </p>
-        <p>
-            <label>Notes<br>
-                <textarea name="notes">{{ goal.notes if goal else '' }}</textarea>
-            </label>
-        </p>
-        <button type="submit">Generate training plan</button>
-        <p><em>This calls Claude with your Strava data and can take 10–30 seconds.</em></p>
-    </form>
-</section>
+  {% if error %}
+  <div class="notice-error">{{ error }}</div>
+  {% endif %}
+
+  {% if goal %}
+  <div class="card" style="margin-bottom:1.5em;font-size:0.88em;color:var(--muted)">
+    Current goal: <strong style="color:var(--text)">{{ goal.race_name or "General fitness" }}</strong>
+    ({{ goal.race_distance or "distance not set" }}), race date {{ goal.race_date or "not set" }},
+    {{ goal.weekly_hours or "?" }} hrs/week.
+    Submitting the form below will replace it with a new plan.
+  </div>
+  {% endif %}
+
+  <h2 style="margin-top:0">Your goal</h2>
+  <p style="color:var(--muted);font-size:0.88em;margin-bottom:1.25em">Pick a race type to pre-fill the distance, or enter a custom goal below.</p>
+
+  <div class="goal-cards">
+    <div class="goal-card" data-distance="5 km" data-name="5K">
+      <span class="gc-distance">5 km</span><span class="gc-label">5K</span>
+    </div>
+    <div class="goal-card" data-distance="10 km" data-name="10K">
+      <span class="gc-distance">10 km</span><span class="gc-label">10K</span>
+    </div>
+    <div class="goal-card" data-distance="Half Marathon (21.1 km)" data-name="Half Marathon">
+      <span class="gc-distance">21.1 km</span><span class="gc-label">Half Marathon</span>
+    </div>
+    <div class="goal-card" data-distance="Marathon (42.2 km)" data-name="Marathon">
+      <span class="gc-distance">42.2 km</span><span class="gc-label">Marathon</span>
+    </div>
+    <div class="goal-card" data-distance="Olympic Triathlon" data-name="Olympic Triathlon">
+      <span class="gc-distance">51.5 km</span><span class="gc-label">Olympic Tri</span>
+    </div>
+    <div class="goal-card" data-distance="Half Ironman (70.3)" data-name="70.3 Triathlon">
+      <span class="gc-distance">113 km</span><span class="gc-label">70.3</span>
+    </div>
+    <div class="goal-card" data-distance="Full Ironman (140.6 miles)" data-name="Ironman">
+      <span class="gc-distance">226 km</span><span class="gc-label">Ironman</span>
+    </div>
+    <div class="goal-card" data-distance="Gran Fondo" data-name="Gran Fondo">
+      <span class="gc-distance">~ 150 km</span><span class="gc-label">Gran Fondo</span>
+    </div>
+    <div class="goal-card" data-distance="General fitness" data-name="General Fitness">
+      <span class="gc-distance">—</span><span class="gc-label">General Fitness</span>
+    </div>
+  </div>
+
+  <form method="post" action="/setup/generate-plan">
+    <div class="form-group">
+      <label>Race / goal name</label>
+      <input type="text" name="race_name" value="{{ goal.race_name if goal else '' }}" placeholder="e.g. Berlin Marathon">
+    </div>
+    <div class="form-group">
+      <label>Race date</label>
+      <input type="date" name="race_date" value="{{ goal.race_date if goal else '' }}">
+    </div>
+    <div class="form-group">
+      <label>Distance / race type</label>
+      <input type="text" name="race_distance" id="race-distance"
+             placeholder="e.g. marathon, 10k, 70.3"
+             value="{{ goal.race_distance if goal else '' }}">
+    </div>
+    <div class="form-group">
+      <label>Weekly hours available</label>
+      <input type="number" name="weekly_hours" step="0.5" min="0"
+             value="{{ goal.weekly_hours if goal else '' }}" placeholder="e.g. 8">
+    </div>
+    <div class="form-group">
+      <label>Notes (injuries, travel, preferences)</label>
+      <textarea name="notes" rows="3" placeholder="e.g. No Tuesdays, recovering from knee strain">{{ goal.notes if goal else '' }}</textarea>
+    </div>
+    <button type="submit" class="btn-primary">Generate training plan →</button>
+    <p style="color:var(--muted);font-size:0.82em;margin-top:0.75em">Calls Claude with your Strava data — takes 10–30 seconds.</p>
+  </form>
+</div>
+
+<script>
+// Pre-fill goal fields when a card is clicked
+document.querySelectorAll('.goal-card').forEach(function (card) {
+  card.addEventListener('click', function () {
+    document.querySelectorAll('.goal-card').forEach(function (c) { c.classList.remove('selected'); });
+    card.classList.add('selected');
+    document.getElementById('race-distance').value = card.dataset.distance;
+    var nameField = document.querySelector('[name=race_name]');
+    if (!nameField.value) nameField.value = card.dataset.name;
+  });
+});
+
+// Show strava result pre only when it has content
+document.body.addEventListener('htmx:afterSwap', function (e) {
+  if (e.target.id === 'strava-result') {
+    e.target.style.display = e.target.textContent.trim() ? 'block' : 'none';
+  }
+});
+</script>
 {% endblock %}

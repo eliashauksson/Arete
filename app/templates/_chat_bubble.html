@@ -1,0 +1,24 @@
+<div class="msg-row user">
+  <div class="bubble user">{{ user_message }}</div>
+</div>
+<div class="msg-row claude">
+  <div class="bubble claude">{{ claude_message }}</div>
+</div>
+
+{% if plan_confirmed %}
+<div class="msg-row claude">
+  <div class="bubble claude" style="padding:1em 1.1em">
+    <p style="margin-bottom:0.75em;color:var(--muted);font-size:0.9em">Ready to generate your personalised training plan. This will take about 30 seconds.</p>
+    <form hx-post="/setup/generate"
+          hx-target="#chat-window"
+          hx-swap="beforeend"
+          hx-on::before-request="document.getElementById('gen-spinner').style.display='inline';this.querySelector('button').disabled=true"
+          hx-on::after-request="document.getElementById('gen-spinner').style.display='none'">
+      <div class="gen-btn-row">
+        <button type="submit" class="btn-primary">Generate my training plan →</button>
+        <span id="gen-spinner" style="display:none;color:var(--muted);font-size:0.85em">Building your plan…</span>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}

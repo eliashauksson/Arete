@@ -26,6 +26,8 @@ class Goal(SQLModel, table=True):
     target_time: Optional[str] = None
     weekly_hours: Optional[float] = None
     notes: Optional[str] = None
+    sport_types: Optional[str] = None  # JSON array e.g. ["run","bike"]
+    goals_json: Optional[str] = None   # full multi-goal data from intake
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -52,6 +54,16 @@ class PlannedSession(SQLModel, table=True):
     strava_activity_id: Optional[int] = Field(default=None, foreign_key="stravaactivity.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class SetupConversation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    athlete_id: int = Field(foreign_key="athlete.id")
+    messages: str = Field(default="[]")   # JSON [{role,content}, ...]
+    strava_context: Optional[str] = None  # cached compact Strava summary
+    goal_json: Optional[str] = None       # extracted when Claude says PLAN_CONFIRMED
+    status: str = "chatting"              # chatting | done
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class StravaActivity(SQLModel, table=True):

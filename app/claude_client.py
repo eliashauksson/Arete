@@ -224,6 +224,74 @@ async def generate_activity_summary(activity) -> str:
     return response.content[0].text.strip()
 
 
+_SETUP_GREETING = "Hi! I'm your Arete training coach. What are you currently training for — a specific race, general fitness, or something else?"
+
+_SETUP_SYSTEM = """You are an intake coach for Arete, a personalised AI training app. Gather training information through warm, natural conversation.
+
+RULES:
+- Ask 1-2 questions per turn only. Be concise (2-4 sentences per reply).
+- Never repeat the opening greeting — it has already been shown to the user.
+- If Strava data is provided, weave it in naturally: "I can see you've been running around X km/week — is that typical?"
+
+EXTRACT across the conversation:
+- Race goals: name, date, distance, priority (A = peak race, B = target, C = tune-up). Can be multiple races.
+- Sport mix: run / bike / swim / strength / triathlon
+- Weekly training hours and preferred training days
+- Blocked/unavailable days
+- Current fitness level, recent training, injuries, constraints
+
+FLOW: gather info for ~8-10 exchanges, then summarise everything and ask "Does this look right?"
+
+ON USER CONFIRMATION output this EXACTLY (valid JSON, no deviations):
+<GOAL_JSON>
+{"goals":[{"race_name":"...","race_date":"YYYY-MM-DD","race_distance":"...","priority":"A","sport_type":"run"}],"sport_types":["run"],"weekly_hours":8.0,"blocked_days":[],"notes":"..."}
+</GOAL_JSON>
+PLAN_CONFIRMED"""
+
+
+async def setup_chat_response(messages: list[dict], strava_context: Optional[str] = None) -> str:
+    """Single Claude call (no tools) for the conversational setup intake."""
+    client = get_client()
+    system = _SETUP_SYSTEM
+    if strava_context:
+        system += f"\n\nAthlete's Strava snapshot (reference naturally, don't quote verbatim):\n{strava_context}"
+    # Prepend the greeting as a prior assistant turn so Claude knows the
+    # conversation already opened with it and won't repeat it.
+    ctx = [{"role": "assistant", "content": _SETUP_GREETING}] + messages[-10:]
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=600,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+        messages=ctx,
+    )
+    usage = response.usage
+    print(
+        f"[claude-setup] input={usage.input_tokens} output={usage.output_tokens} "
+        f"cache_read={usage.cache_read_input_tokens or 0}"
+    )
+    return response.content[0].text.strip()
+
+
+def extract_goal_json(text: str) -> Optional[dict]:
+    """Parse the <GOAL_JSON>…</GOAL_JSON> block Claude emits on confirmation."""
+    import re
+    m = re.search(r"<GOAL_JSON>(.*?)</GOAL_JSON>", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1).strip())
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def clean_claude_message(text: str) -> str:
+    """Strip internal markers before showing text to the user."""
+    import re
+    text = re.sub(r"<GOAL_JSON>.*?</GOAL_JSON>", "", text, flags=re.DOTALL)
+    text = text.replace("PLAN_CONFIRMED", "")
+    return text.strip()
+
+
 async def verify_strava_connection(mcp: StravaMCPClient) -> str:
     """Round-trips through Claude + the Strava MCP tools to prove the bridge works."""
     return await run_agentic_text(

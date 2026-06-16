@@ -24,6 +24,7 @@ def migrate_db() -> None:
             ("hr_data", "TEXT"),
             ("pace_data", "TEXT"),
         ],
+        "goal": [("sport_types", "TEXT"), ("goals_json", "TEXT")],
     }
     with engine.connect() as conn:
         for table, cols in migrations.items():

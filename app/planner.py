@@ -192,11 +192,37 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
 
     start = date.today()
     end = start + timedelta(days=27)
+
+    # Build a richer context from intake conversation data (if available)
+    extra_ctx = ""
+    if goal.sport_types:
+        try:
+            sports = json.loads(goal.sport_types)
+            if sports:
+                extra_ctx += f" Sport mix: {', '.join(sports)} — distribute sessions proportionally."
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if goal.goals_json:
+        try:
+            gdata = json.loads(goal.goals_json)
+            blocked = gdata.get("blocked_days", [])
+            if blocked:
+                extra_ctx += f" Blocked training days: {', '.join(blocked)}."
+            goals = gdata.get("goals", [])
+            if len(goals) > 1:
+                races = "; ".join(
+                    f"{g.get('priority','A')}-race: {g.get('race_name')} ({g.get('race_distance')}) on {g.get('race_date')}"
+                    for g in goals
+                )
+                extra_ctx += f" Race schedule: {races}."
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     context_prompt = (
         "Before designing the plan, use the Strava tools to fetch the athlete's "
         "profile, recent activities (last several weeks), and heart rate zones "
         "so the plan reflects their real current fitness. Then design a "
-        "progressive 4-week training plan."
+        f"progressive 4-week training plan.{extra_ctx}"
     )
     await regenerate_sessions_from(
         mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end

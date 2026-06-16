@@ -257,7 +257,7 @@ async def setup_chat_response(messages: list[dict], strava_context: Optional[str
         system += f"\n\nAthlete's Strava snapshot (reference naturally, don't quote verbatim):\n{strava_context}"
     # Prepend the greeting as a prior assistant turn so Claude knows the
     # conversation already opened with it and won't repeat it.
-    ctx = [{"role": "assistant", "content": _SETUP_GREETING}] + messages[-10:]
+    ctx = [{"role": "assistant", "content": _SETUP_GREETING}] + messages
     response = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=600,

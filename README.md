@@ -2,7 +2,7 @@
 
 A local, single-user, AI-powered endurance training planner.
 
-Stack: FastAPI, Jinja2 + HTMX, SQLite (SQLModel), FullCalendar.js, Chart.js,
+Stack: FastAPI, Jinja2 + HTMX, SQLite (SQLModel), FullCalendar.js, Leaflet.js, Chart.js,
 and the Anthropic Python SDK.
 
 ## How it works
@@ -10,35 +10,33 @@ and the Anthropic Python SDK.
 Arete does **not** talk to the Strava REST API or implement Strava OAuth
 itself. Instead, it runs the community [`strava-mcp`](https://github.com/r-huijts/strava-mcp)
 server as a local subprocess (over stdio) and bridges it into Claude using
-the Anthropic SDK's MCP client helpers + tool runner. When you ask Arete to
-check your Strava connection, build a plan, or look at your activities,
-Claude calls the Strava MCP server's tools directly — Arete's own code never
-touches Strava's API or stores Strava tokens.
+the Anthropic SDK's MCP client helpers. When Arete needs Strava data, Claude
+calls the MCP tools directly — Arete's own code never touches Strava's API
+or stores Strava tokens.
 
-Claude's responses are extracted as structured JSON via a manual agentic
-loop (`app/claude_client.py`) — it calls the Strava MCP tools itself when
-Claude asks for them, rather than relying on the SDK's tool runner, so
-results can be reliably parsed into the plan/activity records Arete stores.
+Claude responses are extracted via a manual agentic loop (`app/claude_client.py`).
+The setup intake uses a direct (non-tool) Claude call with the full conversation
+history; plan generation and activity analysis go through the full MCP-enabled
+agentic loop with prompt caching.
 
 ## Pages
 
-- **`/setup`** — connect Strava (via the MCP server's own browser-based
-  OAuth flow), verify that Claude can reach your Strava data, and fill in a
-  goal (race, date, distance, weekly hours, notes). Submitting the goal form
-  has Claude fetch your real profile, recent activities, and HR zones via
-  the Strava MCP tools and generate a 4-week training plan, saved to SQLite
-  and then shown on `/calendar`. Takes 10–30 seconds — it's a real
-  multi-step Claude + Strava round trip, not instant.
-- **`/calendar`** — a FullCalendar view of your planned sessions
-  (color-coded by sport: run/bike/swim/strength/brick/rest/other) with real
-  Strava activities overlaid (faded/dashed). Click a planned session to see
-  its details and type a free-text adjustment (e.g. "I'm injured, swap this
-  week for rest") — Claude regenerates everything from that date forward,
-  never touching sessions already in the past.
-- **`/dashboard`** — a Chart.js bar chart of planned vs. actual training
-  load per week, a weekly compliance percentage list, and a **Re-adjust**
-  button that sends last week's planned-vs-actual numbers to Claude and
-  rebalances the upcoming plan accordingly.
+- **`/setup`** — conversational AI intake coach. Claude asks 1–2 questions at a
+  time to gather your A/B/C race goals, sport mix (run/bike/swim/strength/tri),
+  weekly availability, and blocked days. It silently fetches your Strava profile
+  after the first message and weaves it in naturally. After 8–10 exchanges it
+  summarises everything and asks for confirmation, then generates a structured
+  plan saved to SQLite. The full conversation is stored so you can close the
+  browser and pick up where you left off.
+- **`/calendar`** — FullCalendar view of planned sessions (colour-coded by
+  sport) with real Strava activities overlaid. Click a planned session for
+  details and a free-text adjustment field — Claude regenerates everything
+  from that date forward. Click a Strava activity to see a detail panel with
+  a Leaflet map of the GPS route, Chart.js HR and pace graphs, and a 2–3
+  sentence AI coaching summary.
+- **`/dashboard`** — Chart.js bar chart of planned vs. actual training load
+  per week, weekly compliance %, and a **Re-adjust** button that sends last
+  week's numbers to Claude and rebalances the upcoming plan.
 
 ## Prerequisites
 
@@ -46,8 +44,7 @@ results can be reliably parsed into the plan/activity records Arete stores.
 - [Node.js](https://nodejs.org/) (tested with v20) — needed to run the
   Strava MCP server via `npx`
 - An [Anthropic API key](https://console.anthropic.com/settings/keys) with
-  a funded account (API usage is billed separately from any Claude.ai
-  subscription)
+  a funded account (API usage is billed separately from Claude.ai subscriptions)
 - A [Strava API application](https://www.strava.com/settings/api)
 
 ## Setup
@@ -64,19 +61,16 @@ results can be reliably parsed into the plan/activity records Arete stores.
 2. **Get an Anthropic API key:**
    - Sign in at [console.anthropic.com](https://console.anthropic.com)
    - Go to **API Keys** → **Create Key**
-   - Make sure the account has billing set up (**Settings → Billing**) —
-     requests will fail with a billing error otherwise
+   - Make sure billing is set up (**Settings → Billing**)
 
 3. **Create a Strava API application:**
    - Go to [strava.com/settings/api](https://www.strava.com/settings/api)
-     (log in first)
    - Application Name: `Arete` (anything works)
    - Category: Training
    - Website: `http://localhost`
-   - **Authorization Callback Domain: `localhost`** — just the bare word, no
-     `http://`, no port. The Strava MCP server's OAuth helper listens on a
-     local port to catch the redirect, so this must be `localhost`.
-   - Copy the **Client ID** and **Client Secret** shown after creating it.
+   - **Authorization Callback Domain: `localhost`** — bare word, no `http://`,
+     no port. The Strava MCP server's OAuth helper catches the redirect.
+   - Copy the **Client ID** and **Client Secret**.
 
 4. **Configure environment variables:**
 
@@ -84,7 +78,7 @@ results can be reliably parsed into the plan/activity records Arete stores.
    cp .env.example .env
    ```
 
-   Edit `.env` and fill in:
+   Edit `.env`:
 
    ```
    ANTHROPIC_API_KEY=sk-ant-...
@@ -98,66 +92,54 @@ results can be reliably parsed into the plan/activity records Arete stores.
    .venv/bin/uvicorn app.main:app --reload --port 8000
    ```
 
-   On startup, Arete spawns the Strava MCP server (`npx -y
-   @r-huijts/strava-mcp-server`) automatically — no separate process to
-   manage.
+   Arete spawns the Strava MCP server (`npx -y @r-huijts/strava-mcp-server`)
+   automatically on startup.
 
 6. **Connect Strava:**
 
-   Open [http://localhost:8000/setup](http://localhost:8000/setup) in a
-   real browser (not curl — this step needs to open a browser window for
-   Strava's consent screen) and click **Connect Strava**. Authorize the app,
-   then use **Test Claude + Strava connection** to confirm Claude can pull
-   your real Strava data.
+   Open [http://localhost:8000/setup](http://localhost:8000/setup) and use
+   the **Connect Strava** / **Test connection** links to authorise via
+   Strava's browser OAuth flow.
 
-7. **Generate a training plan:**
+7. **Run the intake chat:**
 
-   On the same `/setup` page, fill in the goal form (race name, race date,
-   distance, weekly hours available, optional notes) and click **Generate
-   training plan**. This takes 10–30 seconds, then redirects you to
-   `/calendar` with a real 4-week plan. From there:
-   - Click any planned session to see details or type an adjustment
-     instruction for Claude to act on.
-   - Visit `/dashboard` to see planned-vs-actual load and weekly
-     compliance, and use **Re-adjust** to have Claude rebalance the
-     upcoming plan based on how last week actually went.
+   Chat with the AI coach on `/setup`. It will ask about your goals, check
+   your Strava history, and generate a plan when you confirm. Then visit
+   `/calendar` to see your sessions.
 
 ## Project structure
 
 ```
 app/
-├── main.py            FastAPI app; lifespan starts/stops the Strava MCP subprocess
-├── config.py           Settings (env vars)
+├── main.py              FastAPI app; lifespan starts/stops the Strava MCP subprocess
+├── config.py            Settings (env vars)
 ├── db.py                SQLModel engine + session + get_or_create_athlete
-├── models.py             Athlete, Goal, TrainingPlan, PlannedSession, StravaActivity
-├── mcp_client.py          Spawns and manages the Strava MCP server over stdio
-├── claude_client.py        Manual agentic loop bridging the live MCP tools into Claude,
-│                            with structured-JSON extraction (run_agentic_text/_json)
-├── planner.py              Plan generation & cascading regeneration: generate_initial_plan,
-│                            adjust_session, weekly_reonadjust, sync_strava_activities
+├── models.py            Athlete, Goal, TrainingPlan, PlannedSession,
+│                        StravaActivity, SetupConversation
+├── mcp_client.py        Spawns and manages the Strava MCP server over stdio
+├── claude_client.py     Agentic loop (MCP tools + prompt caching), setup intake
+│                        chat, activity summary, goal JSON extraction
+├── planner.py           Plan generation & cascading regeneration
 ├── routers/
-│   ├── setup.py             /setup, /setup/connect-strava, /setup/verify-connection,
-│   │                        /setup/generate-plan
-│   ├── calendar.py           /calendar, /calendar/events, /calendar/session/{id},
-│   │                         /calendar/session/{id}/adjust
-│   └── dashboard.py          /dashboard, /dashboard/chart-data, /dashboard/re-adjust
-├── templates/             Jinja2 templates (incl. FullCalendar + Chart.js via CDN)
-└── static/                  Static assets (placeholder)
+│   ├── setup.py         /setup (intake chat), /setup/chat, /setup/generate,
+│   │                    /setup/reset, /setup/refine, /setup/connect-strava
+│   ├── calendar.py      /calendar, /calendar/events, /calendar/session/{id},
+│   │                    /calendar/activity/{id}, /calendar/session/{id}/adjust
+│   └── dashboard.py     /dashboard, /dashboard/chart-data, /dashboard/re-adjust
+├── templates/           Jinja2 templates (FullCalendar, Leaflet, Chart.js via CDN)
+└── static/              Static assets
 ```
 
 ## Notes
 
-- This is built for a single local user — there's no login system. Strava
-  connection state lives in the MCP server's own config file
-  (`~/.config/strava-mcp/config.json`), not in Arete's database.
-- The SQLite database (`arete.db`) is created automatically on first run
-  and is gitignored.
-- "Load" is a relative training-stress number, not an official Strava
-  metric: Claude assigns it when planning sessions, and actual load uses
-  Strava's relative effort/suffer score when available, falling back to
-  minutes of moving time otherwise.
-- Generating a plan archives any previously active plan for the athlete —
-  there's only ever one active `TrainingPlan` at a time.
-- `/calendar` and `/dashboard` re-fetch and cache Strava activities (via
-  Claude + the MCP tools) into the local `StravaActivity` table on every
-  load, so each visit can trigger a real (and billed) Claude API call.
+- Single local user — no login system. Strava connection state lives in the
+  MCP server's config (`~/.config/strava-mcp/config.json`), not in Arete's DB.
+- The SQLite database (`arete.db`) is created and migrated automatically on
+  first run and is gitignored.
+- GPS/HR/pace streams are fetched from Strava on first activity click and
+  cached in the DB permanently — subsequent clicks are instant.
+- "Load" is a relative training-stress number Claude assigns when planning;
+  actual load uses Strava's relative effort score when available, falling back
+  to moving time.
+- Generating a plan archives any previously active plan — there is only ever
+  one active `TrainingPlan` per athlete.

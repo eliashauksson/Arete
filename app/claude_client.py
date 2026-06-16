@@ -137,6 +137,10 @@ async def _agentic_loop(
                         "is_error": bool(getattr(result, "isError", False)),
                     }
                 )
+        # Cache the accumulated conversation history by marking the last tool result.
+        # On the next loop iteration, everything up to this point is a cache hit.
+        if tool_results:
+            tool_results[-1] = {**tool_results[-1], "cache_control": {"type": "ephemeral", "ttl": "1h"}}
         messages.append({"role": "user", "content": tool_results})
     raise RuntimeError("Exceeded max tool-use iterations without a final answer from Claude")
 
@@ -213,7 +217,7 @@ async def generate_activity_summary(activity) -> str:
         "and one notable observation about this workout. Plain text only, no markdown."
     )
     response = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=300,
         messages=[{"role": "user", "content": prompt}],
     )

@@ -2,6 +2,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import delete as sqla_delete
 from sqlmodel import Session, select
 
 from app.claude_client import run_agentic_json
@@ -131,8 +132,12 @@ async def regenerate_sessions_from(
     )
     sessions_data = data.get("sessions", [])
 
-    for s in existing:
-        db.delete(s)
+    db.exec(
+        sqla_delete(PlannedSession)
+        .where(PlannedSession.plan_id == plan.id)
+        .where(PlannedSession.date >= cutoff_date)
+        .where(PlannedSession.date <= end)
+    )
     db.flush()
 
     new_sessions = []

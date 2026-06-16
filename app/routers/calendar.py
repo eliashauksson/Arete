@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.mcp_client import strava_mcp
-from app.models import Athlete, PlannedSession, StravaActivity
+from app.models import Athlete, PlannedSession, StravaActivity, TrainingPlan
 from app.planner import SPORT_COLORS, adjust_session, sync_strava_activities
 
 router = APIRouter()
@@ -30,12 +30,24 @@ async def calendar_events(start: str, end: str, db: Session = Depends(get_sessio
     start_date = _parse_fc_date(start)
     end_date = _parse_fc_date(end)  # FullCalendar's `end` is exclusive
 
-    planned = db.exec(
-        select(PlannedSession)
-        .where(PlannedSession.date >= start_date)
-        .where(PlannedSession.date < end_date)
-        .order_by(PlannedSession.date)
-    ).all()
+    athlete = db.exec(select(Athlete)).first()
+    active_plan = None
+    if athlete:
+        active_plan = db.exec(
+            select(TrainingPlan)
+            .where(TrainingPlan.athlete_id == athlete.id)
+            .where(TrainingPlan.status == "active")
+        ).first()
+
+    planned = []
+    if active_plan:
+        planned = db.exec(
+            select(PlannedSession)
+            .where(PlannedSession.plan_id == active_plan.id)
+            .where(PlannedSession.date >= start_date)
+            .where(PlannedSession.date < end_date)
+            .order_by(PlannedSession.date)
+        ).all()
 
     events = []
     for s in planned:

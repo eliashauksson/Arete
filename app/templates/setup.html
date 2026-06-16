@@ -64,7 +64,7 @@ function scrollBottom() {
 function afterChat() {
   document.getElementById('typing-row').style.display = 'none';
   document.getElementById('send-btn').disabled = false;
-  document.getElementById('msg-input').disabled = false;
+  document.getElementById('msg-input').readOnly = false;
   document.getElementById('msg-input').value = '';
   document.getElementById('msg-input').focus();
   scrollBottom();
@@ -73,7 +73,8 @@ function afterChat() {
 document.getElementById('chat-form').addEventListener('submit', function () {
   document.getElementById('typing-row').style.display = 'flex';
   document.getElementById('send-btn').disabled = true;
-  document.getElementById('msg-input').disabled = true;
+  // readOnly keeps the value in form serialization; disabled would exclude it (→ 422)
+  document.getElementById('msg-input').readOnly = true;
   setTimeout(scrollBottom, 50);
 });
 

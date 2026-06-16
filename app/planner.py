@@ -9,8 +9,8 @@ from app.claude_client import run_agentic_json
 from app.mcp_client import StravaMCPClient
 from app.models import Athlete, Goal, PlannedSession, StravaActivity, TrainingPlan
 
-MAX_TOKENS_ADJUSTMENT = 1000
-MAX_TOKENS_PLAN_GENERATION = 2000
+MAX_TOKENS_ADJUSTMENT = 4096
+MAX_TOKENS_PLAN_GENERATION = 8192
 STRAVA_SYNC_FRESHNESS = timedelta(hours=1)
 ADJUSTMENT_WINDOW_DAYS = 13  # bounds regeneration to ~2 weeks so it always fits MAX_TOKENS_ADJUSTMENT
 
@@ -36,15 +36,21 @@ PLAN_SYSTEM_PROMPT = (
 )
 
 SESSION_SCHEMA_NOTE = (
-    'Respond with ONLY JSON of the shape: {"sessions": [{"date": "YYYY-MM-DD", '
-    '"sport_type": one of "run"/"bike"/"swim"/"strength"/"brick"/"rest"/"other", '
-    '"title": short string (max 6 words), "description": max 15 words, '
-    '"planned_duration_min": integer minutes, "planned_load": number '
-    "(your own relative training-stress estimate, roughly 0-150 where an easy "
-    "30 min run is ~30 and a hard 90 min long run is ~120)}, ...]}. Be concise — "
-    "every word costs tokens. "
-    'Include every day in the requested range, using sport_type "rest" for '
-    "rest days (with planned_duration_min 0 and planned_load 0)."
+    "Respond with ONLY this JSON shape: "
+    '{"sessions": [{'
+    '"date": "YYYY-MM-DD", '
+    '"sport_type": one of run/bike/swim/strength/brick/rest/other, '
+    '"title": max 6 words, '
+    '"description": 2-3 sentences (what to do, target pace/HR zone, why this session matters for the goal; null for rest days), '
+    '"hr_zone": integer 1-5 for the primary target HR zone, or null for rest/strength, '
+    '"structure": array of {\"type\": string, \"duration_min\": integer, \"note\": string (optional)} '
+    'e.g. [{"type":"warmup","duration_min":10},{"type":"main","duration_min":30,"note":"zone 2 easy pace"},{"type":"cooldown","duration_min":5}] — '
+    'null for rest days, '
+    '"planned_duration_min": integer minutes (0 for rest), '
+    '"planned_load": 0-150 relative stress (0 for rest)'
+    "}]}. "
+    'Include every calendar day in the range. '
+    'For rest days set sport_type="rest" and description/hr_zone/structure=null, planned_duration_min=0, planned_load=0.'
 )
 
 ACTIVITY_SCHEMA_NOTE = (
@@ -70,6 +76,8 @@ def _bounded_range_end(db: Session, plan: TrainingPlan, cutoff: date) -> date:
 
 
 def _session_to_dict(s: PlannedSession) -> dict:
+    # hr_zone and structure are always freshly generated, so omit them from the
+    # existing-plan context — showing null values causes Claude to preserve them.
     return {
         "date": s.date.isoformat(),
         "sport_type": s.sport_type,
@@ -146,12 +154,15 @@ async def regenerate_sessions_from(
             session_date = date.fromisoformat(item["date"])
         except (KeyError, ValueError):
             continue
+        raw_structure = item.get("structure")
         session = PlannedSession(
             plan_id=plan.id,
             date=session_date,
             sport_type=item.get("sport_type") or "other",
             title=item.get("title") or "Session",
             description=item.get("description"),
+            hr_zone=item.get("hr_zone"),
+            structure=json.dumps(raw_structure) if raw_structure else None,
             planned_duration_min=item.get("planned_duration_min"),
             planned_load=item.get("planned_load"),
         )
@@ -339,7 +350,7 @@ async def refine_plan(
         f"Here is the current training plan ({start.isoformat()} – {end.isoformat()}):\n"
         f"{json.dumps([_session_to_dict(s) for s in future])}\n\n"
         f'The athlete says: "{instruction}"\n\n'
-        f"Adjust the plan to honour their preference. Keep unchanged sessions as-is."
+        f"Regenerate all sessions honouring this preference, with full coaching detail per the required schema."
     )
     return await regenerate_sessions_from(
         mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end

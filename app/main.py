@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.db import create_db_and_tables
+from app.db import create_db_and_tables, migrate_db
 from app.mcp_client import strava_mcp
 from app.routers import calendar, dashboard, setup
 
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+    migrate_db()
     try:
         await strava_mcp.start()
     except Exception:

@@ -44,6 +44,8 @@ class PlannedSession(SQLModel, table=True):
     sport_type: str
     title: str
     description: Optional[str] = None
+    hr_zone: Optional[int] = None
+    structure: Optional[str] = None  # JSON array of workout blocks
     planned_duration_min: Optional[int] = None
     planned_load: Optional[float] = None
     status: str = "planned"

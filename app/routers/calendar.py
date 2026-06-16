@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
@@ -102,7 +103,15 @@ async def session_detail(request: Request, session_id: int, db: Session = Depend
     session_obj = db.get(PlannedSession, session_id)
     if session_obj is None:
         return HTMLResponse("<p>Session not found.</p>", status_code=404)
-    return templates.TemplateResponse(request, "_session_detail.html", {"session": session_obj})
+    structure = []
+    if session_obj.structure:
+        try:
+            structure = json.loads(session_obj.structure)
+        except (json.JSONDecodeError, TypeError):
+            structure = []
+    return templates.TemplateResponse(
+        request, "_session_detail.html", {"session": session_obj, "structure": structure}
+    )
 
 
 class AdjustRequest(BaseModel):

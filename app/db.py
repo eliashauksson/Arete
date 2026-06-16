@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from app import models  # noqa: F401 -- registers tables on SQLModel.metadata
@@ -10,6 +11,18 @@ engine = create_engine(settings.database_url, connect_args=connect_args)
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
+
+
+def migrate_db() -> None:
+    """Add columns introduced after the initial schema. SQLite ALTER TABLE has no
+    IF NOT EXISTS, so we check via PRAGMA and skip existing columns."""
+    new_cols = [("hr_zone", "INTEGER"), ("structure", "TEXT")]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(plannedsession)"))}
+        for col, col_type in new_cols:
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE plannedsession ADD COLUMN {col} {col_type}"))
+        conn.commit()
 
 
 def get_session():

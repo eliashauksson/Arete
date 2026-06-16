@@ -9,8 +9,8 @@ from sqlmodel import Session, select
 from app.claude_client import connect_strava, verify_strava_connection
 from app.db import get_or_create_athlete, get_session
 from app.mcp_client import strava_mcp
-from app.models import Athlete, Goal
-from app.planner import generate_initial_plan
+from app.models import Athlete, Goal, PlannedSession, TrainingPlan
+from app.planner import generate_initial_plan, refine_plan
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -71,4 +71,60 @@ async def generate_plan_route(
             {"goal": goal, "error": f"Plan generation failed: {exc}"},
         )
 
-    return RedirectResponse(url="/calendar", status_code=303)
+    return RedirectResponse(url="/setup/refine", status_code=303)
+
+
+@router.get("/setup/refine", response_class=HTMLResponse)
+async def refine_page(request: Request, db: Session = Depends(get_session)):
+    athlete = db.exec(select(Athlete)).first()
+    if athlete is None:
+        return RedirectResponse("/setup", status_code=303)
+    plan = db.exec(
+        select(TrainingPlan)
+        .where(TrainingPlan.athlete_id == athlete.id)
+        .where(TrainingPlan.status == "active")
+    ).first()
+    if plan is None:
+        return RedirectResponse("/setup", status_code=303)
+    sessions = db.exec(
+        select(PlannedSession).where(PlannedSession.plan_id == plan.id).order_by(PlannedSession.date)
+    ).all()
+    return templates.TemplateResponse(request, "refine.html", {"sessions": sessions})
+
+
+@router.post("/setup/refine/chat", response_class=HTMLResponse)
+async def refine_chat(
+    request: Request,
+    instruction: str = Form(...),
+    db: Session = Depends(get_session),
+):
+    athlete = db.exec(select(Athlete)).first()
+    plan = None
+    if athlete:
+        plan = db.exec(
+            select(TrainingPlan)
+            .where(TrainingPlan.athlete_id == athlete.id)
+            .where(TrainingPlan.status == "active")
+        ).first()
+    if plan is None:
+        return HTMLResponse("<p>No active plan found. <a href='/setup'>Go to setup</a>.</p>")
+
+    error = None
+    sessions = []
+    try:
+        sessions = await refine_plan(strava_mcp, db, plan, instruction)
+        # re-query to get the full sorted list including past sessions
+        sessions = db.exec(
+            select(PlannedSession).where(PlannedSession.plan_id == plan.id).order_by(PlannedSession.date)
+        ).all()
+    except Exception as exc:
+        error = str(exc)
+        sessions = db.exec(
+            select(PlannedSession).where(PlannedSession.plan_id == plan.id).order_by(PlannedSession.date)
+        ).all()
+
+    return templates.TemplateResponse(
+        request,
+        "_refine_response.html",
+        {"instruction": instruction, "sessions": sessions, "error": error},
+    )

@@ -1,0 +1,17 @@
+<div class="msg-user">
+  <strong>You:</strong>
+  {{ instruction }}
+</div>
+{% if error %}
+<div class="msg-assistant msg-error">
+  <strong>Error:</strong> {{ error }}
+</div>
+{% else %}
+<div class="msg-assistant">
+  <strong>Claude:</strong> Plan updated.
+</div>
+{% endif %}
+
+<div id="plan-view" hx-swap-oob="true">
+  {% include "_plan_table.html" %}
+</div>

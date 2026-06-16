@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Refine plan — Arete{% endblock %}
+{% block content %}
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request.htmx-indicator { display: inline; }
+  #chat-history { margin: 1em 0; }
+  .msg-user { margin: 0.75em 0 0.25em; }
+  .msg-user strong { display: block; }
+  .msg-assistant { margin: 0 0 0.75em; color: #444; }
+  .msg-error { color: red; }
+</style>
+
+<h1>Refine your training plan</h1>
+<p>Tell Claude how to adjust the plan — preferred days, blocked days, session lengths, workout types. When you're happy, click <strong>Looks good</strong>.</p>
+
+<div id="plan-view">
+  {% include "_plan_table.html" %}
+</div>
+
+<hr>
+
+<div id="chat-history"></div>
+
+<form hx-post="/setup/refine/chat"
+      hx-target="#chat-history"
+      hx-swap="beforeend"
+      hx-indicator="#refine-spinner"
+      hx-on::after-request="this.reset()">
+  <textarea name="instruction" rows="3" style="width:100%;box-sizing:border-box"
+            placeholder="e.g. I prefer long runs on Sunday, block Wednesdays, keep all sessions under 75 min"
+            required></textarea>
+  <br>
+  <button type="submit">Send</button>
+  <span id="refine-spinner" class="htmx-indicator"> Claude is updating your plan…</span>
+</form>
+
+<hr>
+<a href="/calendar">
+  <button type="button">Looks good — go to calendar →</button>
+</a>
+{% endblock %}

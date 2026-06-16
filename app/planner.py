@@ -312,6 +312,35 @@ async def sync_strava_activities(
     ).all()
 
 
+async def refine_plan(
+    mcp: StravaMCPClient,
+    db: Session,
+    plan: TrainingPlan,
+    instruction: str,
+) -> list[PlannedSession]:
+    """Apply a freeform chat instruction to the future portion of a plan."""
+    goal = db.get(Goal, plan.goal_id)
+    today = date.today()
+
+    all_sessions = db.exec(
+        select(PlannedSession).where(PlannedSession.plan_id == plan.id).order_by(PlannedSession.date)
+    ).all()
+    future = [s for s in all_sessions if s.date >= today]
+    if not future:
+        return []
+
+    start, end = future[0].date, future[-1].date
+    context_prompt = (
+        f"Here is the current training plan ({start.isoformat()} – {end.isoformat()}):\n"
+        f"{json.dumps([_session_to_dict(s) for s in future])}\n\n"
+        f'The athlete says: "{instruction}"\n\n'
+        f"Adjust the plan to honour their preference. Keep unchanged sessions as-is."
+    )
+    return await regenerate_sessions_from(
+        mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end
+    )
+
+
 def activity_load(activity: StravaActivity) -> float:
     if activity.relative_effort is not None:
         return activity.relative_effort

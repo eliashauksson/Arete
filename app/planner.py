@@ -6,7 +6,12 @@ from sqlmodel import Session, select
 
 from app.claude_client import run_agentic_json
 from app.mcp_client import StravaMCPClient
-from app.models import Goal, PlannedSession, StravaActivity, TrainingPlan
+from app.models import Athlete, Goal, PlannedSession, StravaActivity, TrainingPlan
+
+MAX_TOKENS_ADJUSTMENT = 1000
+MAX_TOKENS_PLAN_GENERATION = 2000
+STRAVA_SYNC_FRESHNESS = timedelta(hours=1)
+ADJUSTMENT_WINDOW_DAYS = 13  # bounds regeneration to ~2 weeks so it always fits MAX_TOKENS_ADJUSTMENT
 
 SPORT_COLORS = {
     "run": "#2563eb",
@@ -32,10 +37,11 @@ PLAN_SYSTEM_PROMPT = (
 SESSION_SCHEMA_NOTE = (
     'Respond with ONLY JSON of the shape: {"sessions": [{"date": "YYYY-MM-DD", '
     '"sport_type": one of "run"/"bike"/"swim"/"strength"/"brick"/"rest"/"other", '
-    '"title": short string, "description": 1-3 sentences, '
+    '"title": short string (max 6 words), "description": max 15 words, '
     '"planned_duration_min": integer minutes, "planned_load": number '
     "(your own relative training-stress estimate, roughly 0-150 where an easy "
-    "30 min run is ~30 and a hard 90 min long run is ~120)}, ...]}. "
+    "30 min run is ~30 and a hard 90 min long run is ~120)}, ...]}. Be concise — "
+    "every word costs tokens. "
     'Include every day in the requested range, using sport_type "rest" for '
     "rest days (with planned_duration_min 0 and planned_load 0)."
 )
@@ -48,6 +54,18 @@ ACTIVITY_SCHEMA_NOTE = (
     '"average_heartrate": number or null, "relative_effort": number or null}, ...]}. '
     "If there are no activities in range, return an empty list."
 )
+
+
+def _bounded_range_end(db: Session, plan: TrainingPlan, cutoff: date) -> date:
+    """Caps a regeneration window to ADJUSTMENT_WINDOW_DAYS so the output always
+    fits MAX_TOKENS_ADJUSTMENT, even when adjusting a session early in the plan."""
+    last_date = db.exec(
+        select(PlannedSession.date)
+        .where(PlannedSession.plan_id == plan.id)
+        .order_by(PlannedSession.date.desc())
+    ).first()
+    window_end = cutoff + timedelta(days=ADJUSTMENT_WINDOW_DAYS)
+    return min(last_date, window_end) if last_date else window_end
 
 
 def _session_to_dict(s: PlannedSession) -> dict:
@@ -68,17 +86,30 @@ async def regenerate_sessions_from(
     goal: Goal,
     cutoff_date: date,
     context_prompt: str,
+    max_tokens: int,
     range_end: Optional[date] = None,
 ) -> list[PlannedSession]:
-    """Replaces every PlannedSession in `plan` from `cutoff_date` onward with a
-    freshly Claude-generated set, never touching sessions before the cutoff."""
+    """Replaces every PlannedSession in `plan` between `cutoff_date` and `end`
+    (inclusive) with a freshly Claude-generated set, never touching sessions
+    outside that range."""
+    if range_end is not None:
+        end = range_end
+    else:
+        last_date = db.exec(
+            select(PlannedSession.date)
+            .where(PlannedSession.plan_id == plan.id)
+            .where(PlannedSession.date >= cutoff_date)
+            .order_by(PlannedSession.date.desc())
+        ).first()
+        end = last_date or cutoff_date
+
     existing = db.exec(
         select(PlannedSession)
         .where(PlannedSession.plan_id == plan.id)
         .where(PlannedSession.date >= cutoff_date)
+        .where(PlannedSession.date <= end)
         .order_by(PlannedSession.date)
     ).all()
-    end = range_end or (existing[-1].date if existing else cutoff_date)
 
     prompt = (
         f"{context_prompt}\n\n"
@@ -95,7 +126,9 @@ async def regenerate_sessions_from(
         f"through {end.isoformat()} inclusive. {SESSION_SCHEMA_NOTE}"
     )
 
-    data = await run_agentic_json(mcp, prompt, system=PLAN_SYSTEM_PROMPT, effort="medium")
+    data = await run_agentic_json(
+        mcp, prompt, system=PLAN_SYSTEM_PROMPT, effort="medium", max_tokens=max_tokens
+    )
     sessions_data = data.get("sessions", [])
 
     for s in existing:
@@ -149,7 +182,9 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
         "so the plan reflects their real current fitness. Then design a "
         "progressive 4-week training plan."
     )
-    await regenerate_sessions_from(mcp, db, plan, goal, start, context_prompt, range_end=end)
+    await regenerate_sessions_from(
+        mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end
+    )
     return plan
 
 
@@ -162,7 +197,10 @@ async def adjust_session(mcp: StravaMCPClient, db: Session, session: PlannedSess
         f'"{instruction}". Update that session and rebalance any later '
         f"sessions in the plan as needed to sensibly account for the change."
     )
-    await regenerate_sessions_from(mcp, db, plan, goal, session.date, context_prompt)
+    range_end = _bounded_range_end(db, plan, session.date)
+    await regenerate_sessions_from(
+        mcp, db, plan, goal, session.date, context_prompt, MAX_TOKENS_ADJUSTMENT, range_end=range_end
+    )
 
 
 async def weekly_reonadjust(mcp: StravaMCPClient, db: Session, plan: TrainingPlan) -> None:
@@ -179,7 +217,7 @@ async def weekly_reonadjust(mcp: StravaMCPClient, db: Session, plan: TrainingPla
     ).all()
     planned_load_sum = sum(s.planned_load or 0 for s in planned)
 
-    actuals = await sync_strava_activities(mcp, db, plan.athlete_id, week_start, week_end)
+    actuals = await sync_strava_activities(mcp, db, plan.athlete_id, week_start, week_end, force=True)
     actual_load_sum = sum(activity_load(a) for a in actuals)
 
     context_prompt = (
@@ -191,51 +229,77 @@ async def weekly_reonadjust(mcp: StravaMCPClient, db: Session, plan: TrainingPla
         f"off if they under-trained or seem fatigued, progress normally if "
         f"compliance was good)."
     )
-    await regenerate_sessions_from(mcp, db, plan, goal, today, context_prompt)
+    range_end = _bounded_range_end(db, plan, today)
+    await regenerate_sessions_from(
+        mcp, db, plan, goal, today, context_prompt, MAX_TOKENS_ADJUSTMENT, range_end=range_end
+    )
 
 
 async def sync_strava_activities(
-    mcp: StravaMCPClient, db: Session, athlete_id: int, start: date, end: date
+    mcp: StravaMCPClient,
+    db: Session,
+    athlete_id: int,
+    start: date,
+    end: date,
+    force: bool = False,
 ) -> list[StravaActivity]:
     if start > end:
         return []
-    prompt = (
-        f"Fetch my Strava activities between {start.isoformat()} and "
-        f"{end.isoformat()} inclusive. {ACTIVITY_SCHEMA_NOTE}"
-    )
-    data = await run_agentic_json(mcp, prompt, effort="low")
 
-    for item in data.get("activities", []):
-        try:
-            strava_id = int(item["strava_id"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        existing = db.exec(select(StravaActivity).where(StravaActivity.strava_id == strava_id)).first()
-        if existing is None:
-            existing = StravaActivity(
-                athlete_id=athlete_id,
-                strava_id=strava_id,
-                name="",
-                sport_type="other",
-                start_date=datetime.utcnow(),
-                distance=0,
-                moving_time=0,
-                elapsed_time=0,
-                total_elevation_gain=0,
-            )
-        existing.name = item.get("name") or existing.name
-        existing.sport_type = item.get("sport_type") or existing.sport_type
-        if item.get("start_date"):
-            existing.start_date = datetime.fromisoformat(item["start_date"])
-        existing.distance = float(item.get("distance") or 0)
-        existing.moving_time = int(item.get("moving_time") or 0)
-        existing.elapsed_time = int(item.get("elapsed_time") or 0)
-        existing.total_elevation_gain = float(item.get("total_elevation_gain") or 0)
-        existing.average_heartrate = item.get("average_heartrate")
-        existing.relative_effort = item.get("relative_effort")
-        existing.raw_json = json.dumps(item)
-        db.add(existing)
-    db.commit()
+    athlete = db.get(Athlete, athlete_id)
+    now = datetime.utcnow()
+    is_fresh = (
+        not force
+        and athlete is not None
+        and athlete.last_strava_sync is not None
+        and now - athlete.last_strava_sync < STRAVA_SYNC_FRESHNESS
+    )
+
+    if not is_fresh:
+        print(f"[strava-sync] fetching live (force={force}, athlete_id={athlete_id})")
+        prompt = (
+            f"Fetch my Strava activities between {start.isoformat()} and "
+            f"{end.isoformat()} inclusive. {ACTIVITY_SCHEMA_NOTE}"
+        )
+        data = await run_agentic_json(mcp, prompt, effort="low")
+
+        for item in data.get("activities", []):
+            try:
+                strava_id = int(item["strava_id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            existing = db.exec(select(StravaActivity).where(StravaActivity.strava_id == strava_id)).first()
+            if existing is None:
+                existing = StravaActivity(
+                    athlete_id=athlete_id,
+                    strava_id=strava_id,
+                    name="",
+                    sport_type="other",
+                    start_date=datetime.utcnow(),
+                    distance=0,
+                    moving_time=0,
+                    elapsed_time=0,
+                    total_elevation_gain=0,
+                )
+            existing.name = item.get("name") or existing.name
+            existing.sport_type = item.get("sport_type") or existing.sport_type
+            if item.get("start_date"):
+                existing.start_date = datetime.fromisoformat(item["start_date"])
+            existing.distance = float(item.get("distance") or 0)
+            existing.moving_time = int(item.get("moving_time") or 0)
+            existing.elapsed_time = int(item.get("elapsed_time") or 0)
+            existing.total_elevation_gain = float(item.get("total_elevation_gain") or 0)
+            existing.average_heartrate = item.get("average_heartrate")
+            existing.relative_effort = item.get("relative_effort")
+            existing.raw_json = json.dumps(item)
+            db.add(existing)
+
+        if athlete is not None:
+            athlete.last_strava_sync = now
+            db.add(athlete)
+        db.commit()
+    else:
+        print(f"[strava-sync] using cache, synced {now - athlete.last_strava_sync} ago")
 
     range_start = datetime.combine(start, datetime.min.time())
     range_end = datetime.combine(end + timedelta(days=1), datetime.min.time())

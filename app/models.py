@@ -12,6 +12,7 @@ class Athlete(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     display_name: Optional[str] = None
     strava_connected: bool = False
+    last_strava_sync: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

@@ -7,6 +7,7 @@ from app.config import settings
 from app.mcp_client import StravaMCPClient
 
 _client: Optional[anthropic.AsyncAnthropic] = None
+_athlete_context_cache: Optional[str] = None
 
 
 def get_client() -> anthropic.AsyncAnthropic:
@@ -22,6 +23,47 @@ def mcp_tool_to_claude_tool(t: Any) -> dict:
         "description": t.description or "",
         "input_schema": t.inputSchema,
     }
+
+
+async def cached_tools(mcp: StravaMCPClient) -> list[dict]:
+    """Builds the Claude tool list from the live MCP tools, with a cache_control
+    breakpoint on the last one. Tools render first in the API's prompt prefix, so
+    this caches the whole (~5k-token) tools array across loop iterations and
+    separate calls, as long as the MCP server's tool list doesn't change."""
+    tools = [mcp_tool_to_claude_tool(t) for t in await mcp.list_tools()]
+    if tools:
+        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    return tools
+
+
+async def get_cached_athlete_context(mcp: StravaMCPClient) -> Optional[str]:
+    """Fetches athlete profile + HR zones from Strava once per process and caches the
+    summary text. The result is injected as a cache_control-marked block into planning
+    calls so Anthropic's server can cache it across API turns."""
+    global _athlete_context_cache
+    if _athlete_context_cache is not None:
+        return _athlete_context_cache
+    tools = await cached_tools(mcp)
+    prompt = (
+        "Use the Strava tools to fetch the athlete's profile and heart rate zones. "
+        "Write a concise 3-5 sentence summary: who they are, their sport background, "
+        "current fitness level, and any notable training context (HR zones, recent "
+        "activity volume). Plain text only."
+    )
+    try:
+        text, _ = await _agentic_loop(
+            mcp,
+            [{"role": "user", "content": prompt}],
+            tools,
+            system=None,
+            effort="low",
+            max_tokens=384,
+            max_iterations=4,
+        )
+        _athlete_context_cache = text.strip() or None
+    except Exception as exc:
+        print(f"[claude] athlete context fetch failed: {exc}")
+    return _athlete_context_cache
 
 
 def mcp_result_to_text(result: Any) -> str:
@@ -57,7 +99,11 @@ async def _agentic_loop(
     max_iterations: int = 8,
 ) -> tuple[str, list[dict]]:
     client = get_client()
-    extra: dict = {"system": system} if system else {}
+    extra: dict = (
+        {"system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]}
+        if system
+        else {}
+    )
     for _ in range(max_iterations):
         response = await client.messages.create(
             model="claude-sonnet-4-6",
@@ -66,6 +112,13 @@ async def _agentic_loop(
             tools=tools,
             messages=messages,
             **extra,
+        )
+        usage = response.usage
+        print(
+            f"[claude] model=claude-sonnet-4-6 effort={effort} "
+            f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens} "
+            f"cache_read={usage.cache_read_input_tokens or 0} "
+            f"cache_creation={usage.cache_creation_input_tokens or 0}"
         )
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
@@ -91,7 +144,7 @@ async def _agentic_loop(
 async def run_agentic_text(
     mcp: StravaMCPClient, prompt: str, system: Optional[str] = None, effort: str = "low"
 ) -> str:
-    tools = [mcp_tool_to_claude_tool(t) for t in await mcp.list_tools()]
+    tools = await cached_tools(mcp)
     text, _ = await _agentic_loop(
         mcp, [{"role": "user", "content": prompt}], tools, system, effort, max_tokens=1024
     )
@@ -99,11 +152,30 @@ async def run_agentic_text(
 
 
 async def run_agentic_json(
-    mcp: StravaMCPClient, prompt: str, system: Optional[str] = None, effort: str = "medium"
+    mcp: StravaMCPClient,
+    prompt: str,
+    system: Optional[str] = None,
+    effort: str = "medium",
+    max_tokens: int = 2048,
 ) -> dict:
-    tools = [mcp_tool_to_claude_tool(t) for t in await mcp.list_tools()]
-    messages = [{"role": "user", "content": prompt}]
-    text, messages = await _agentic_loop(mcp, messages, tools, system, effort, max_tokens=4096)
+    tools = await cached_tools(mcp)
+
+    # When a system prompt is present (planning calls), prepend a cached athlete
+    # context block so Anthropic's server can cache it across iterations.
+    if system:
+        athlete_ctx = await get_cached_athlete_context(mcp)
+        if athlete_ctx:
+            first_content = [
+                {"type": "text", "text": f"Athlete summary:\n{athlete_ctx}", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+                {"type": "text", "text": prompt},
+            ]
+        else:
+            first_content = prompt
+    else:
+        first_content = prompt
+
+    messages = [{"role": "user", "content": first_content}]
+    text, messages = await _agentic_loop(mcp, messages, tools, system, effort, max_tokens=max_tokens)
     try:
         return extract_json(text)
     except (json.JSONDecodeError, ValueError):
@@ -116,7 +188,7 @@ async def run_agentic_json(
                 ),
             }
         )
-        text, _ = await _agentic_loop(mcp, messages, tools, system, effort, max_tokens=4096)
+        text, _ = await _agentic_loop(mcp, messages, tools, system, effort, max_tokens=max_tokens)
         return extract_json(text)
 
 

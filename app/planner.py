@@ -6,9 +6,15 @@ from typing import Optional
 from sqlalchemy import delete as sqla_delete
 from sqlmodel import Session, select
 
-from app.claude_client import generate_activity_summary, run_agentic_json
+from app.claude_client import (
+    expand_macro_week as _claude_expand_week,
+    generate_activity_summary,
+    generate_macro_plan as _claude_macro_plan,
+    get_cached_athlete_context,
+    run_agentic_json,
+)
 from app.mcp_client import StravaMCPClient
-from app.models import Athlete, Goal, PlannedSession, StravaActivity, TrainingPlan
+from app.models import Athlete, Goal, MacroPlan, MacroWeek, PlannedSession, StravaActivity, TrainingPlan
 
 MAX_TOKENS_ADJUSTMENT = 4096
 MAX_TOKENS_PLAN_GENERATION = 8192
@@ -175,13 +181,176 @@ async def regenerate_sessions_from(
     return new_sessions
 
 
+def _store_macro_plan(
+    db: Session,
+    training_plan: TrainingPlan,
+    athlete,
+    weeks_data: list[dict],
+    season_start: date,
+    season_end: date,
+) -> MacroPlan:
+    macro_plan = MacroPlan(
+        training_plan_id=training_plan.id,
+        athlete_id=athlete.id,
+        season_start=season_start,
+        season_end=season_end,
+    )
+    db.add(macro_plan)
+    db.commit()
+    db.refresh(macro_plan)
+
+    for w in weeks_data:
+        raw_start = w.get("start_date")
+        try:
+            w_start = date.fromisoformat(raw_start) if raw_start else season_start + timedelta(weeks=w.get("week_number", 1) - 1)
+        except ValueError:
+            w_start = season_start + timedelta(weeks=w.get("week_number", 1) - 1)
+        # Normalise to the Monday of that week
+        w_start = w_start - timedelta(days=w_start.weekday())
+
+        db.add(MacroWeek(
+            macro_plan_id=macro_plan.id,
+            week_number=w.get("week_number", 1),
+            start_date=w_start,
+            phase=w.get("phase", "base"),
+            sport_focus=w.get("sport_focus"),
+            hours_run=float(w.get("hours_run") or 0),
+            hours_bike=float(w.get("hours_bike") or 0),
+            hours_swim=float(w.get("hours_swim") or 0),
+            hours_strength=float(w.get("hours_strength") or 0),
+            theme=w.get("theme", ""),
+            is_expanded=False,
+        ))
+    db.commit()
+    return macro_plan
+
+
+async def _expand_week(
+    db: Session,
+    plan: TrainingPlan,
+    goal: Goal,
+    macro_week: MacroWeek,
+) -> list[PlannedSession]:
+    """Expand one MacroWeek into 7 PlannedSession records using a lightweight Haiku call."""
+    goal_context = (
+        f"Goal: {goal.race_name or 'general fitness'}"
+        + (f" ({goal.race_distance})" if goal.race_distance else "")
+        + f", race date {goal.race_date.isoformat() if goal.race_date else 'TBD'}. "
+        + f"Available {goal.weekly_hours or '?'}h/week."
+    )
+    if goal.notes:
+        goal_context += f" Notes: {goal.notes}."
+
+    # Previous week's sessions for continuity
+    prev_sessions_db = db.exec(
+        select(PlannedSession)
+        .where(PlannedSession.plan_id == plan.id)
+        .where(PlannedSession.date >= macro_week.start_date - timedelta(days=7))
+        .where(PlannedSession.date < macro_week.start_date)
+        .order_by(PlannedSession.date)
+    ).all()
+    prev_sessions = [
+        {"date": s.date.isoformat(), "sport_type": s.sport_type, "planned_duration_min": s.planned_duration_min}
+        for s in prev_sessions_db
+    ]
+
+    week_dict = {
+        "week_number": macro_week.week_number,
+        "start_date": macro_week.start_date.isoformat(),
+        "phase": macro_week.phase,
+        "theme": macro_week.theme,
+        "sport_focus": macro_week.sport_focus,
+        "hours_run": macro_week.hours_run,
+        "hours_bike": macro_week.hours_bike,
+        "hours_swim": macro_week.hours_swim,
+        "hours_strength": macro_week.hours_strength,
+    }
+    data = await _claude_expand_week(week_dict, goal_context, prev_sessions)
+    sessions_data = data.get("sessions", [])
+
+    week_end = macro_week.start_date + timedelta(days=6)
+    db.exec(
+        sqla_delete(PlannedSession)
+        .where(PlannedSession.plan_id == plan.id)
+        .where(PlannedSession.date >= macro_week.start_date)
+        .where(PlannedSession.date <= week_end)
+    )
+    db.flush()
+
+    new_sessions = []
+    for item in sessions_data:
+        try:
+            session_date = date.fromisoformat(item["date"])
+        except (KeyError, ValueError):
+            continue
+        raw_structure = item.get("structure")
+        session = PlannedSession(
+            plan_id=plan.id,
+            date=session_date,
+            sport_type=item.get("sport_type") or "other",
+            title=item.get("title") or "Session",
+            description=item.get("description"),
+            hr_zone=item.get("hr_zone"),
+            structure=json.dumps(raw_structure) if raw_structure else None,
+            planned_duration_min=item.get("planned_duration_min"),
+            planned_load=item.get("planned_load"),
+        )
+        db.add(session)
+        new_sessions.append(session)
+
+    macro_week.is_expanded = True
+    db.add(macro_week)
+    db.commit()
+    for s in new_sessions:
+        db.refresh(s)
+    print(f"[planner] expanded week {macro_week.week_number} → {len(new_sessions)} sessions")
+    return new_sessions
+
+
+async def maybe_auto_expand(db: Session, plan: TrainingPlan, goal: Goal) -> bool:
+    """Expand the next unexpanded week when fewer than 14 detailed future days remain.
+    Returns True if an expansion was performed."""
+    today = date.today()
+
+    future_count = len(db.exec(
+        select(PlannedSession)
+        .where(PlannedSession.plan_id == plan.id)
+        .where(PlannedSession.date >= today)
+    ).all())
+
+    if future_count >= 14:
+        return False
+
+    macro_plan = db.exec(
+        select(MacroPlan).where(MacroPlan.training_plan_id == plan.id)
+    ).first()
+    if macro_plan is None:
+        return False
+
+    this_monday = today - timedelta(days=today.weekday())
+    next_week = db.exec(
+        select(MacroWeek)
+        .where(MacroWeek.macro_plan_id == macro_plan.id)
+        .where(MacroWeek.is_expanded == False)
+        .where(MacroWeek.start_date >= this_monday)
+        .order_by(MacroWeek.start_date)
+    ).first()
+
+    if next_week is None:
+        return False
+
+    print(f"[planner] auto-expanding week {next_week.week_number} ({future_count} detailed days remain)")
+    await _expand_week(db, plan, goal, next_week)
+    return True
+
+
 async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal: Goal) -> TrainingPlan:
-    existing_active = db.exec(
+    # Archive any existing active plans
+    for p in db.exec(
         select(TrainingPlan)
         .where(TrainingPlan.athlete_id == athlete.id)
         .where(TrainingPlan.status == "active")
-    ).all()
-    for p in existing_active:
+    ).all():
         p.status = "archived"
         db.add(p)
     db.commit()
@@ -191,64 +360,87 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
     db.commit()
     db.refresh(plan)
 
-    start = date.today()
-    end = start + timedelta(days=27)
+    today = date.today()
+    season_start = today - timedelta(days=today.weekday())  # Monday of current week
 
-    # Sync the last 12 months of Strava activities into SQLite first, then build
-    # a compact summary to pass directly in the prompt so Claude doesn't need to
-    # paginate through history itself during plan generation.
+    # ── Strava history sync (12 months → compact summary) ─────────────────────
     history_summary: Optional[str] = None
-    history_start = start - timedelta(days=365)
     try:
         history = await sync_strava_activities(
-            mcp, db, athlete.id, history_start, start - timedelta(days=1),
+            mcp, db, athlete.id,
+            today - timedelta(days=365), today - timedelta(days=1),
             force=True, max_tokens=8192, skip_summaries=True,
         )
         if history:
             history_summary = build_activity_summary(history)
             print(f"[planner] synced {len(history)} activities for history context")
     except Exception as exc:
-        print(f"[planner] history sync failed, proceeding without it: {exc}")
+        print(f"[planner] history sync failed: {exc}")
 
-    # Build a richer context from intake conversation data (if available)
-    extra_ctx = ""
-    if goal.sport_types:
-        try:
-            sports = json.loads(goal.sport_types)
-            if sports:
-                extra_ctx += f" Sport mix: {', '.join(sports)} — distribute sessions proportionally."
-        except (json.JSONDecodeError, TypeError):
-            pass
+    # ── Resolve season end from goal data ──────────────────────────────────────
+    goal_data: dict = {}
     if goal.goals_json:
         try:
-            gdata = json.loads(goal.goals_json)
-            blocked = gdata.get("blocked_days", [])
-            if blocked:
-                extra_ctx += f" Blocked training days: {', '.join(blocked)}."
-            goals = gdata.get("goals", [])
-            if len(goals) > 1:
-                races = "; ".join(
-                    f"{g.get('priority','A')}-race: {g.get('race_name')} ({g.get('race_distance')}) on {g.get('race_date')}"
-                    for g in goals
-                )
-                extra_ctx += f" Race schedule: {races}."
+            goal_data = json.loads(goal.goals_json)
+        except json.JSONDecodeError:
+            pass
+    if not goal_data.get("goals") and (goal.race_name or goal.race_date):
+        goal_data["goals"] = [{
+            "race_name": goal.race_name,
+            "race_date": goal.race_date.isoformat() if goal.race_date else None,
+            "race_distance": goal.race_distance,
+            "priority": "A",
+        }]
+    if goal.weekly_hours and "weekly_hours" not in goal_data:
+        goal_data["weekly_hours"] = goal.weekly_hours
+    if goal.sport_types and "sport_types" not in goal_data:
+        try:
+            goal_data["sport_types"] = json.loads(goal.sport_types)
         except (json.JSONDecodeError, TypeError):
             pass
+    if goal.notes and "notes" not in goal_data:
+        goal_data["notes"] = goal.notes
 
-    context_prompt = (
-        "Before designing the plan, use the Strava tools to fetch the athlete's "
-        "profile and heart rate zones so the plan reflects their real current fitness."
+    goals_list = goal_data.get("goals", [])
+    a_race = next((g for g in goals_list if g.get("priority") == "A"), None)
+    last_race = goals_list[-1] if goals_list else None
+    season_end_raw = (a_race or last_race or {}).get("race_date")
+    try:
+        season_end = date.fromisoformat(season_end_raw) if season_end_raw else today + timedelta(days=90)
+    except ValueError:
+        season_end = today + timedelta(days=90)
+    if season_end <= season_start:
+        season_end = season_start + timedelta(days=90)
+
+    # ── Athlete profile (for macro context) ───────────────────────────────────
+    athlete_context: Optional[str] = None
+    try:
+        athlete_context = await get_cached_athlete_context(mcp)
+    except Exception as exc:
+        print(f"[planner] athlete context failed: {exc}")
+
+    # ── Layer 1: Generate full-season macro plan ───────────────────────────────
+    macro_data = await _claude_macro_plan(
+        goal_data, season_start, season_end, history_summary, athlete_context
     )
-    if history_summary:
-        context_prompt += (
-            "\n\nAthlete's last 12 months of training (use for periodisation — "
-            "identify trends, peak months, and current load before building the plan):\n"
-            + history_summary
-        )
-    context_prompt += f"\n\nNow design a progressive 4-week training plan.{extra_ctx}"
-    await regenerate_sessions_from(
-        mcp, db, plan, goal, start, context_prompt, MAX_TOKENS_PLAN_GENERATION, range_end=end
-    )
+    weeks_data = macro_data.get("weeks", [])
+    print(f"[planner] macro plan: {len(weeks_data)} weeks, {season_start} → {season_end}")
+    _store_macro_plan(db, plan, athlete, weeks_data, season_start, season_end)
+
+    # ── Layer 2: Expand first 3 weeks into detailed sessions ──────────────────
+    macro_plan = db.exec(select(MacroPlan).where(MacroPlan.training_plan_id == plan.id)).first()
+    if macro_plan:
+        first_three = db.exec(
+            select(MacroWeek)
+            .where(MacroWeek.macro_plan_id == macro_plan.id)
+            .order_by(MacroWeek.start_date)
+        ).all()[:3]
+        for week in first_three:
+            try:
+                await _expand_week(db, plan, goal, week)
+            except Exception as exc:
+                print(f"[planner] week {week.week_number} expansion failed: {exc}")
+
     return plan
 
 

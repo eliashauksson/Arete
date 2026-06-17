@@ -66,6 +66,30 @@ class SetupConversation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class MacroPlan(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    training_plan_id: int = Field(foreign_key="trainingplan.id")
+    athlete_id: int = Field(foreign_key="athlete.id")
+    season_start: date
+    season_end: date
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class MacroWeek(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    macro_plan_id: int = Field(foreign_key="macroplan.id")
+    week_number: int
+    start_date: date
+    phase: str = "base"
+    sport_focus: Optional[str] = None
+    hours_run: float = Field(default=0.0)
+    hours_bike: float = Field(default=0.0)
+    hours_swim: float = Field(default=0.0)
+    hours_strength: float = Field(default=0.0)
+    theme: str = ""
+    is_expanded: bool = False
+
+
 class StravaActivity(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     athlete_id: int = Field(foreign_key="athlete.id")

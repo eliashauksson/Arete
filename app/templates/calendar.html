@@ -68,11 +68,25 @@
     font-size: 0.8em; border-radius: 3px;
     opacity: 1 !important;
   }
+  /* macro week summary banners — muted blue spanning the full week */
+  .fc-event.macro-week {
+    background: rgba(58,90,122,0.25) !important;
+    border: 1px solid #3A5A7A !important;
+    color: #7BB8E0 !important;
+    font-size: 0.75em; border-radius: 3px;
+    cursor: pointer;
+  }
+  .fc-event.macro-week:hover {
+    background: rgba(58,90,122,0.4) !important;
+    border-color: #7BB8E0 !important;
+  }
 </style>
 
 <script>
 Chart.defaults.color = '#6B8FAD';
 Chart.defaults.borderColor = '#1E3A52';
+
+var _calendarRef = null;
 
 function openPanel(html) {
   var panel = document.getElementById('session-detail');
@@ -140,6 +154,24 @@ function initActivityDetail() {
   makeChart('act-pace', '#3A5A7A', 'rgba(58,90,122,0.15)',     true);
 }
 
+function expandWeek(weekId) {
+  var panel = document.getElementById('session-detail');
+  panel.innerHTML = '<div style="padding:2em;color:var(--muted)">Expanding week — building sessions…</div>';
+  fetch('/calendar/week/' + weekId + '/expand', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.ok) {
+        closePanel();
+        if (_calendarRef) _calendarRef.refetchEvents();
+      } else {
+        panel.innerHTML = '<div style="padding:2em;color:#f87171">Expansion failed: ' + (data.error || 'unknown error') + '</div>';
+      }
+    })
+    .catch(function (err) {
+      panel.innerHTML = '<div style="padding:2em;color:#f87171">Network error: ' + err + '</div>';
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var detailEl   = document.getElementById('session-detail');
   var backdropEl = document.getElementById('detail-backdrop');
@@ -151,7 +183,22 @@ document.addEventListener('DOMContentLoaded', function () {
     events: '/calendar/events',
     eventClick: function (info) {
       var props = info.event.extendedProps;
-      if (props.kind === 'planned') {
+      if (props.kind === 'macro') {
+        var parts = [];
+        if (props.hoursRun)      parts.push(props.hoursRun + 'h run');
+        if (props.hoursBike)     parts.push(props.hoursBike + 'h bike');
+        if (props.hoursSwim)     parts.push(props.hoursSwim + 'h swim');
+        if (props.hoursStrength) parts.push(props.hoursStrength + 'h strength');
+        var loadStr = parts.join(' · ') || 'rest week';
+        openPanel(
+          '<button class="detail-close" onclick="closePanel()">✕</button>' +
+          '<h4 style="color:var(--muted);margin-bottom:0.5em">WEEK ' + props.weekNum + ' · ' + props.phase.toUpperCase() + '</h4>' +
+          '<h3 style="margin-bottom:0.75em">' + props.theme + '</h3>' +
+          '<p style="color:var(--muted);font-size:0.88em;margin-bottom:1.5em">' + loadStr + '</p>' +
+          '<p style="color:var(--muted);font-size:0.85em;margin-bottom:1em">Sessions for this week haven\'t been detailed yet.</p>' +
+          '<button class="btn-primary" onclick="expandWeek(' + props.weekId + ')">Expand to daily sessions →</button>'
+        );
+      } else if (props.kind === 'planned') {
         fetch('/calendar/session/' + props.sessionId)
           .then(function (r) { return r.text(); })
           .then(function (html) { openPanel(html); });
@@ -166,6 +213,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     }
   });
+  _calendarRef = calendar;
   calendar.render();
 
   detailEl.addEventListener('submit', function (e) {

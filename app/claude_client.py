@@ -1,4 +1,5 @@
 import json
+from datetime import date as _date, timedelta
 from typing import Any, Optional
 
 import anthropic
@@ -290,6 +291,128 @@ def clean_claude_message(text: str) -> str:
     text = re.sub(r"<GOAL_JSON>.*?</GOAL_JSON>", "", text, flags=re.DOTALL)
     text = text.replace("PLAN_CONFIRMED", "")
     return text.strip()
+
+
+async def generate_macro_plan(
+    goal_data: dict,
+    season_start: _date,
+    season_end: _date,
+    history_summary: Optional[str] = None,
+    athlete_context: Optional[str] = None,
+) -> dict:
+    """One Claude call (no MCP) to produce a full-season macro plan as compact JSON."""
+    client = get_client()
+    num_weeks = max(1, ((season_end - season_start).days // 7) + 1)
+
+    goals = goal_data.get("goals", [])
+    weekly_hours = goal_data.get("weekly_hours") or 8
+    sport_types = goal_data.get("sport_types") or ["run"]
+    blocked_days = goal_data.get("blocked_days") or []
+    notes = goal_data.get("notes") or ""
+
+    parts: list[str] = [
+        f"Season: {season_start.isoformat()} → {season_end.isoformat()} ({num_weeks} weeks). "
+        f"Week 1 starts {season_start.isoformat()}.",
+        f"Available: {weekly_hours}h/week. Sports: {', '.join(sport_types)}. "
+        f"Blocked days: {', '.join(blocked_days) or 'none'}.",
+    ]
+    if goals:
+        race_lines = [
+            f"  {g.get('priority','?')}: {g.get('race_name')} "
+            f"({g.get('race_distance','?')}) on {g.get('race_date','TBD')}"
+            for g in goals
+        ]
+        parts.append("Races:\n" + "\n".join(race_lines))
+    if notes:
+        parts.append(f"Notes: {notes}")
+    if athlete_context:
+        parts.append(f"Athlete profile: {athlete_context}")
+    if history_summary:
+        parts.append(f"12-month training history (use for periodisation):\n{history_summary}")
+
+    schema = (
+        '{"weeks":[{"week_number":1,"start_date":"YYYY-MM-DD",'
+        '"phase":"base|build|specific|taper|race|recovery",'
+        '"sport_focus":"run|bike|swim|strength|mixed",'
+        '"hours_run":0.0,"hours_bike":0.0,"hours_swim":0.0,"hours_strength":0.0,'
+        '"theme":"one concise line"}]}'
+    )
+    parts.append(
+        f"Design a complete, properly periodised macro plan for ALL {num_weeks} weeks "
+        "(base → build → specific → taper → race → recovery as appropriate). "
+        f"Respond ONLY with this JSON shape — no markdown, no commentary:\n{schema}"
+    )
+
+    response = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=[{
+            "type": "text",
+            "text": "You are an expert endurance coach. Respond only with the JSON object — no markdown, no commentary.",
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        }],
+        messages=[{"role": "user", "content": "\n\n".join(parts)}],
+    )
+    usage = response.usage
+    print(
+        f"[claude-macro] input={usage.input_tokens} output={usage.output_tokens} "
+        f"cache_read={usage.cache_read_input_tokens or 0}"
+    )
+    return extract_json(response.content[0].text)
+
+
+async def expand_macro_week(week: dict, goal_context: str, prev_sessions: list[dict]) -> dict:
+    """Lightweight Haiku call to expand one MacroWeek into 7 PlannedSession records."""
+    client = get_client()
+
+    start = _date.fromisoformat(week["start_date"])
+    days = [(start + timedelta(days=i)) for i in range(7)]
+    day_list = ", ".join(f"{d.strftime('%a')} {d.isoformat()}" for d in days)
+
+    load_parts = []
+    if week.get("hours_run"):   load_parts.append(f"run {week['hours_run']}h")
+    if week.get("hours_bike"):  load_parts.append(f"bike {week['hours_bike']}h")
+    if week.get("hours_swim"):  load_parts.append(f"swim {week['hours_swim']}h")
+    if week.get("hours_strength"): load_parts.append(f"strength {week['hours_strength']}h")
+    load_str = ", ".join(load_parts) or "rest week"
+
+    prev_ctx = ""
+    if prev_sessions:
+        compact = [
+            {"date": s["date"], "type": s["sport_type"], "min": s.get("planned_duration_min")}
+            for s in prev_sessions
+        ]
+        prev_ctx = f"\nPrevious week (for continuity): {json.dumps(compact)}"
+
+    schema = (
+        'Return ONLY: {"sessions":[{"date":"YYYY-MM-DD",'
+        '"sport_type":"run|bike|swim|strength|brick|rest|other",'
+        '"title":"max 6 words",'
+        '"description":"2 sentences or null for rest",'
+        '"hr_zone":1-5|null,'
+        '"structure":[{"type":"warmup|main|interval|threshold|cooldown|recovery","duration_min":int}]|null,'
+        '"planned_duration_min":int,"planned_load":0-150}]}'
+    )
+
+    prompt = (
+        f"Week {week['week_number']} · Phase: {week['phase']} · Theme: {week['theme']}\n"
+        f"Load targets: {load_str}\n"
+        f"{goal_context}"
+        f"{prev_ctx}\n\n"
+        f"Dates: {day_list}\n"
+        f"Generate exactly 7 sessions in date order. Rest days: sport_type=rest, description=null, structure=null, planned_duration_min=0, planned_load=0.\n"
+        f"{schema}"
+    )
+
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1500,
+        system="You are an expert endurance coach. Respond only with the JSON object — no markdown, no commentary.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    usage = response.usage
+    print(f"[claude-expand-week] input={usage.input_tokens} output={usage.output_tokens}")
+    return extract_json(response.content[0].text)
 
 
 async def verify_strava_connection(mcp: StravaMCPClient) -> str:

@@ -10,8 +10,8 @@ from sqlmodel import Session, select
 from app.claude_client import generate_activity_summary, mcp_result_to_text
 from app.db import get_session
 from app.mcp_client import strava_mcp
-from app.models import Athlete, PlannedSession, StravaActivity, TrainingPlan
-from app.planner import SPORT_COLORS, adjust_session, sync_strava_activities
+from app.models import Athlete, Goal, MacroPlan, MacroWeek, PlannedSession, StravaActivity, TrainingPlan
+from app.planner import SPORT_COLORS, _expand_week, adjust_session, maybe_auto_expand, sync_strava_activities
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -34,6 +34,13 @@ async def calendar_page(request: Request, db: Session = Depends(get_session)):
     ).first()
     if plan is None:
         return RedirectResponse("/setup", status_code=303)
+    # Auto-expand the next week if the rolling window is running low.
+    goal = db.get(Goal, plan.goal_id)
+    if goal:
+        try:
+            await maybe_auto_expand(db, plan, goal)
+        except Exception as exc:
+            print(f"[calendar] auto-expand failed: {exc}")
     return templates.TemplateResponse(request, "calendar.html", {})
 
 
@@ -75,6 +82,51 @@ async def calendar_events(start: str, end: str, db: Session = Depends(get_sessio
                 "extendedProps": {"sessionId": s.id, "kind": "planned"},
             }
         )
+
+    # ── Macro week summary events for unexpanded future weeks ─────────────────
+    if active_plan:
+        macro_plan = db.exec(
+            select(MacroPlan).where(MacroPlan.training_plan_id == active_plan.id)
+        ).first()
+        if macro_plan:
+            today = date.today()
+            # Overlap condition: week_start < end_date AND week_start >= start_date-6
+            overlap_start = start_date - timedelta(days=6)
+            unexpanded = db.exec(
+                select(MacroWeek)
+                .where(MacroWeek.macro_plan_id == macro_plan.id)
+                .where(MacroWeek.is_expanded == False)
+                .where(MacroWeek.start_date >= overlap_start)
+                .where(MacroWeek.start_date < end_date)
+                .where(MacroWeek.start_date >= today)
+                .order_by(MacroWeek.start_date)
+            ).all()
+            for week in unexpanded:
+                load_parts = []
+                if week.hours_run:     load_parts.append(f"{week.hours_run:.0f}h run")
+                if week.hours_bike:    load_parts.append(f"{week.hours_bike:.0f}h bike")
+                if week.hours_swim:    load_parts.append(f"{week.hours_swim:.0f}h swim")
+                if week.hours_strength: load_parts.append(f"{week.hours_strength:.0f}h str")
+                load_str = " · ".join(load_parts) or "rest"
+                events.append({
+                    "id": f"macro-{week.id}",
+                    "title": f"W{week.week_number} {week.phase.title()} — {load_str}",
+                    "start": week.start_date.isoformat(),
+                    "end": (week.start_date + timedelta(days=7)).isoformat(),
+                    "allDay": True,
+                    "classNames": ["macro-week", f"macro-{week.phase}"],
+                    "extendedProps": {
+                        "weekId": week.id,
+                        "weekNum": week.week_number,
+                        "kind": "macro",
+                        "phase": week.phase,
+                        "theme": week.theme,
+                        "hoursRun": week.hours_run,
+                        "hoursBike": week.hours_bike,
+                        "hoursSwim": week.hours_swim,
+                        "hoursStrength": week.hours_strength,
+                    },
+                })
 
     athlete = db.exec(select(Athlete)).first()
     if athlete is not None and end_date > start_date:
@@ -202,6 +254,26 @@ async def activity_detail(request: Request, activity_id: int, db: Session = Depe
             "pace_values_json": pace_values_json,
         },
     )
+
+
+@router.post("/calendar/week/{macro_week_id}/expand")
+async def expand_week_route(macro_week_id: int, db: Session = Depends(get_session)):
+    """Expand a MacroWeek into daily PlannedSession records on user request."""
+    macro_week = db.get(MacroWeek, macro_week_id)
+    if macro_week is None:
+        return JSONResponse({"ok": False, "error": "Week not found"}, status_code=404)
+    if macro_week.is_expanded:
+        return {"ok": True, "already_expanded": True}
+    macro_plan = db.get(MacroPlan, macro_week.macro_plan_id)
+    if macro_plan is None:
+        return JSONResponse({"ok": False, "error": "Macro plan not found"}, status_code=404)
+    plan = db.get(TrainingPlan, macro_plan.training_plan_id)
+    goal = db.get(Goal, plan.goal_id)
+    try:
+        sessions = await _expand_week(db, plan, goal, macro_week)
+        return {"ok": True, "sessions_count": len(sessions)}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 class AdjustRequest(BaseModel):

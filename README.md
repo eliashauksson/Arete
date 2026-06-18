@@ -89,11 +89,14 @@ agentic loop with prompt caching.
 5. **Run the app:**
 
    ```bash
-   .venv/bin/uvicorn app.main:app --reload --port 8000
+   make start    # start server in the background (http://localhost:8000)
+   make stop     # stop the server
+   make reload   # stop then start (pick up code changes)
    ```
 
-   Arete spawns the Strava MCP server (`npx -y @r-huijts/strava-mcp-server`)
-   automatically on startup.
+   Logs are written to `.server.log`. Arete spawns the Strava MCP server
+   (`npx -y @r-huijts/strava-mcp-server`) automatically on startup — allow
+   ~4 seconds after `make start` for it to fully connect.
 
 6. **Connect Strava:**
 

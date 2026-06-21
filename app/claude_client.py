@@ -5,6 +5,7 @@ from typing import Any, Optional
 import anthropic
 
 from app.config import settings
+from app.knowledge import load_knowledge
 from app.mcp_client import StravaMCPClient
 
 _client: Optional[anthropic.AsyncAnthropic] = None
@@ -343,12 +344,19 @@ async def generate_macro_plan(
         f"Respond ONLY with this JSON shape — no markdown, no commentary:\n{schema}"
     )
 
+    kb_text = load_knowledge(sport_types)
+    system_text = (
+        f"{kb_text}\n\n"
+        "---\n\n"
+        "You are an expert endurance coach. Use the training science guidelines above "
+        "when designing the plan. Respond only with the JSON object — no markdown, no commentary."
+    )
     response = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=[{
             "type": "text",
-            "text": "You are an expert endurance coach. Respond only with the JSON object — no markdown, no commentary.",
+            "text": system_text,
             "cache_control": {"type": "ephemeral", "ttl": "1h"},
         }],
         messages=[{"role": "user", "content": "\n\n".join(parts)}],
@@ -361,7 +369,12 @@ async def generate_macro_plan(
     return extract_json(response.content[0].text)
 
 
-async def expand_macro_week(week: dict, goal_context: str, prev_sessions: list[dict]) -> dict:
+async def expand_macro_week(
+    week: dict,
+    goal_context: str,
+    prev_sessions: list[dict],
+    sport_types: Optional[list[str]] = None,
+) -> dict:
     """Lightweight Haiku call to expand one MacroWeek into 7 PlannedSession records."""
     client = get_client()
 
@@ -404,10 +417,17 @@ async def expand_macro_week(week: dict, goal_context: str, prev_sessions: list[d
         f"{schema}"
     )
 
+    kb_text = load_knowledge(sport_types or ["run"])
+    system_text = (
+        f"{kb_text}\n\n"
+        "---\n\n"
+        "You are an expert endurance coach. Use the training science guidelines above "
+        "when designing sessions. Respond only with the JSON object — no markdown, no commentary."
+    )
     response = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1500,
-        system="You are an expert endurance coach. Respond only with the JSON object — no markdown, no commentary.",
+        system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
         messages=[{"role": "user", "content": prompt}],
     )
     usage = response.usage

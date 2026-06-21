@@ -171,6 +171,48 @@ async def calendar_events(start: str, end: str, db: Session = Depends(get_sessio
                     },
                 })
 
+    # ── Race events ───────────────────────────────────────────────────────────
+    if active_plan:
+        goal = db.get(Goal, active_plan.goal_id)
+        if goal:
+            races = []
+            if goal.goals_json:
+                try:
+                    gdata = json.loads(goal.goals_json)
+                    races = gdata.get("goals", [])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if not races and goal.race_name and goal.race_date:
+                races = [{"race_name": goal.race_name, "race_date": goal.race_date.isoformat(), "race_distance": goal.race_distance, "priority": "A"}]
+            for race in races:
+                raw_rdate = race.get("race_date")
+                if not raw_rdate:
+                    continue
+                try:
+                    rdate = date.fromisoformat(str(raw_rdate))
+                except (ValueError, TypeError):
+                    continue
+                if rdate < start_date or rdate >= end_date:
+                    continue
+                priority = (race.get("priority") or "A").upper()
+                name = race.get("race_name") or "Race"
+                distance = race.get("race_distance") or ""
+                events.append({
+                    "id": f"race-{name}-{rdate.isoformat()}",
+                    "title": f"🏁 {name}",
+                    "start": rdate.isoformat(),
+                    "allDay": True,
+                    "color": "#E6A817",
+                    "classNames": ["race", f"race-{priority.lower()}"],
+                    "extendedProps": {
+                        "kind": "race",
+                        "raceName": name,
+                        "raceDate": rdate.isoformat(),
+                        "raceDistance": distance,
+                        "racePriority": priority,
+                    },
+                })
+
     athlete = db.exec(select(Athlete)).first()
     if athlete is not None and end_date > start_date:
         try:

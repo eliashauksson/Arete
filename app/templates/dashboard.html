@@ -13,41 +13,45 @@
 </div>
 {% else %}
 
-{% set ns = namespace(planned=0.0, actual=0.0, comp_sum=0.0, comp_n=0) %}
+{% set ns = namespace(actual=0.0, comp_sum=0.0, comp_n=0, detailed_n=0, estimate_n=0) %}
 {% for w in weeks %}
-  {% set ns.planned = ns.planned + w.planned_load %}
-  {% set ns.actual  = ns.actual  + w.actual_load  %}
-  {% if w.compliance is not none %}
-    {% set ns.comp_sum = ns.comp_sum + w.compliance %}
-    {% set ns.comp_n   = ns.comp_n   + 1 %}
+  {% set ns.actual = ns.actual + w.actual_load %}
+  {% if w.is_estimate %}
+    {% set ns.estimate_n = ns.estimate_n + 1 %}
+  {% else %}
+    {% set ns.detailed_n = ns.detailed_n + 1 %}
+    {% if w.compliance is not none %}
+      {% set ns.comp_sum = ns.comp_sum + w.compliance %}
+      {% set ns.comp_n   = ns.comp_n   + 1 %}
+    {% endif %}
   {% endif %}
 {% endfor %}
 {% if ns.comp_n > 0 %}{% set avg_comp = (ns.comp_sum / ns.comp_n) | round(0) | int %}{% else %}{% set avg_comp = none %}{% endif %}
 
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
   <div class="stat-card">
-    <div class="stat-label">Total Planned Load</div>
-    <div class="stat-value">{{ ns.planned | round(0) | int }}</div>
-    <div class="stat-sub">all weeks &middot; season to date</div>
+    <div class="stat-label">Season Weeks</div>
+    <div class="stat-value">{{ weeks | length }}</div>
+    <div class="stat-sub">{{ ns.detailed_n }} detailed &middot; {{ ns.estimate_n }} macro</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Total Actual Load</div>
     <div class="stat-value">{{ ns.actual | round(0) | int }}</div>
-    <div class="stat-sub">from completed sessions</div>
+    <div class="stat-sub">from completed Strava sessions</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Avg Compliance</div>
     {% if avg_comp is not none %}
       <div class="stat-value" style="color:{% if avg_comp >= 95 %}var(--hot){% elif avg_comp >= 85 %}#3fae6c{% else %}#b48a00{% endif %}">{{ avg_comp }}%</div>
     {% else %}
-      <div class="stat-value muted">&mdash;</div>
+      <div class="stat-value" style="color:var(--muted2)">&mdash;</div>
     {% endif %}
-    <div class="stat-sub">planned load completed</div>
+    <div class="stat-sub">detailed weeks only</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Weeks Tracked</div>
-    <div class="stat-value">{{ weeks | length }}</div>
-    <div class="stat-sub">in current plan</div>
+    <div class="stat-label">Detailed Weeks</div>
+    <div class="stat-value">{{ ns.detailed_n }}</div>
+    <div class="stat-sub">with session-level load</div>
   </div>
 </div>
 
@@ -60,6 +64,10 @@
     </div>
   </div>
   <div style="height:262px;"><canvas id="load-chart"></canvas></div>
+  <div style="margin-top:10px;font-size:11.5px;color:var(--muted2);display:flex;gap:18px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--hot);display:inline-block;opacity:0.35;"></span>Macro estimate (hours &rarr; mins proxy)</span>
+    <span style="display:flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--hot);display:inline-block;"></span>Detailed sessions</span>
+  </div>
 </div>
 
 <div class="card" style="padding:0;overflow:hidden;margin-bottom:18px;">
@@ -67,10 +75,11 @@
     <h4>Weekly Breakdown</h4>
   </div>
   <div style="overflow-x:auto;">
-    <table style="min-width:520px;">
+    <table style="min-width:600px;">
       <thead>
         <tr>
           <th>Week</th>
+          <th>Phase</th>
           <th>Planned</th>
           <th>Actual</th>
           <th style="width:170px;">Compliance</th>
@@ -78,9 +87,19 @@
       </thead>
       <tbody>
         {% for w in weeks %}
-        <tr>
-          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ w.week_start }}</td>
-          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);">{{ w.planned_load }}</td>
+        <tr{% if w.is_estimate %} style="opacity:0.6;"{% endif %}>
+          <td>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ w.week_start }}</span>
+            {% if w.theme %}
+            <div style="font-size:11px;color:var(--muted2);margin-top:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ w.theme }}">{{ w.theme }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge" style="font-size:10.5px;text-transform:capitalize;">{{ w.phase }}</span>
+          </td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);">
+            {% if w.is_estimate %}&sim;{% endif %}{{ w.planned_load }}
+          </td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ w.actual_load }}</td>
           <td>
             {% if w.compliance is not none %}
@@ -120,8 +139,8 @@
   function chartTheme() {
     var dark = document.documentElement.getAttribute('data-theme') !== 'light';
     return dark
-      ? { grid:'#16202b', tick:'#52647A', actual:'rgba(237,239,242,0.88)', hot:'#FF5A1F' }
-      : { grid:'#E6DFD0', tick:'#9AA3AC', actual:'#33414E', hot:'#E8480E' };
+      ? { grid:'#16202b', tick:'#52647A', actual:'rgba(237,239,242,0.88)', hot:'#FF5A1F', hotEst:'rgba(255,90,31,0.32)' }
+      : { grid:'#E6DFD0', tick:'#9AA3AC', actual:'#33414E', hot:'#E8480E', hotEst:'rgba(232,72,14,0.32)' };
   }
 
   function buildChart() {
@@ -135,7 +154,7 @@
       data: {
         labels: weeks.map(function(w) { return w.week_start; }),
         datasets: [
-          { label:'Planned', data:weeks.map(function(w){ return w.planned_load; }), backgroundColor:t.hot, borderRadius:4, borderSkipped:false },
+          { label:'Planned', data:weeks.map(function(w){ return w.planned_load; }), backgroundColor:weeks.map(function(w){ return w.is_estimate ? t.hotEst : t.hot; }), borderRadius:4, borderSkipped:false },
           { label:'Actual',  data:weeks.map(function(w){ return w.actual_load; }),  backgroundColor:t.actual, borderRadius:4, borderSkipped:false }
         ]
       },

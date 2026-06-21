@@ -1,6 +1,10 @@
 # CLAUDE.md — Arete developer reference
 
 > **Rule: whenever you change any code in this project, update the relevant section(s) of this file (and README.md if it touches user-facing behaviour). Keep documentation in sync with the code.**
+>
+> **Reference files:** `DESIGN.md` (full CSS/design-token/component reference) and
+> `ROUTES.md` (full route tables) are split out of this file on purpose. Open them
+> only when actually working in that area — don't load them speculatively.
 
 ---
 
@@ -64,6 +68,9 @@ app/
 ├── models.py         All SQLModel table definitions (see below)
 ├── mcp_client.py     StravaMCPClient — wraps MCP stdio session; exposes list_tools() / call_tool()
 │                     Singleton `strava_mcp` imported everywhere
+├── knowledge.py      Knowledge-base loader: load_knowledge(sport_types) → str
+│                     Returns concatenated markdown (core + sport/combo file) prepended to
+│                     plan-generation system prompts. No embeddings — pure filename lookup.
 ├── claude_client.py  All Claude calls (see below)
 ├── planner.py        Plan generation, session expansion, adjustment, Strava sync (see below)
 └── routers/
@@ -75,7 +82,7 @@ app/templates/
 ├── base.html             Nav, global CSS (design tokens), generation overlay, HTMX CDN
 ├── setup.html            Chat intake UI (bubbles, typing indicator, input bar)
 ├── calendar.html         FullCalendar + Leaflet + Chart.js, side panel JS
-├── dashboard.html        Stat cards, Chart.js bar chart, weekly table
+├── dashboard.html        Stat cards, Chart.js bar chart, full-season weekly table (all MacroWeeks; unexpanded rows are dimmed with hours×60 load proxy)
 ├── refine.html           Post-generation plan refine chat
 ├── _chat_bubble.html     HTMX partial: one chat exchange + optional plan-confirmed CTA
 ├── _session_detail.html  HTMX partial: planned session side panel (timeline, adjust form)
@@ -85,7 +92,45 @@ app/templates/
 └── _refine_response.html HTMX partial: refine chat reply + oob plan table update
 
 app/static/              Exists but is empty — app mounts it so it must be present
+
+knowledge/               Sport-specific training science reference (loaded at plan-generation time)
+├── core_training_science.md   Always loaded (sport-agnostic principles)
+├── sports/
+│   ├── road_running.md
+│   ├── road_cycling.md
+│   ├── swimming.md
+│   └── trail_running.md
+└── multisport/
+    └── triathlon.md           Supersedes individual sport files for tri athletes
 ```
+
+---
+
+## Working on this repo with Claude Code (usage/token efficiency)
+
+This project is worked on heavily via Claude Code on a Pro plan, so context and
+model/effort choices directly affect how fast the usage limit is hit.
+
+- **Default model: Sonnet.** Escalate to Opus only for: `claude_client.py`
+  prompt/caching logic, `planner.py` regeneration/adjustment logic, or any change
+  touching 3+ files. Use `/model opusplan` for planning-with-Opus → execute-with-Sonnet
+  on larger changes; it preserves conversation context across the switch.
+- **Default effort: medium.** Use `low` for template/CSS tweaks, route wiring, copy
+  edits, config changes. Use `high` only when debugging the agentic loop, DB
+  migrations, or cross-file regressions.
+- **Pick model + effort at session start and leave them.** Switching either mid-session
+  invalidates the cached prompt prefix and forces a full, expensive re-read.
+- **Open `DESIGN.md` / `ROUTES.md` only when editing that area.** They exist
+  specifically so routine backend work doesn't load the full design-token and
+  route-table reference every turn.
+- **Reference files by path, not `@path`.** `@` pulls in the whole file plus its
+  CLAUDE.md tree; a bare path (e.g. "look at `_agentic_loop` in `app/claude_client.py`")
+  lets Claude read selectively.
+- **`/clear` when switching areas** (e.g. `calendar.py` work → `claude_client.py`
+  work). **`/compact`** when staying in the same area but a sub-task just finished.
+- Don't open `app/templates/base.html` in full unless editing its CSS/JS directly —
+  it's large by design (the whole theme system lives there); see `DESIGN.md` instead
+  for the reference version.
 
 ---
 
@@ -119,7 +164,7 @@ app/static/              Exists but is empty — app mounts it so it must be pre
 
 | Function | What it does |
 |---|---|
-| `_agentic_loop()` | Core loop: calls Claude, executes MCP tool calls, repeats until `stop_reason != "tool_use"`. Caches tools array and last tool_result with `cache_control: ephemeral, ttl: 1h`. Uses `output_config={"effort": effort}` — **verify this param is valid on current SDK**. |
+| `_agentic_loop()` | Core loop: calls Claude, executes MCP tool calls, repeats until `stop_reason != "tool_use"`. Caches tools array and last tool_result with `cache_control: ephemeral, ttl: 1h`. Uses `output_config={"effort": effort}` — confirmed valid API param. |
 | `run_agentic_text()` | Single-prompt agentic call returning plain text. |
 | `run_agentic_json()` | Single-prompt agentic call expecting JSON back. Has a retry if parsing fails. Prepends a cached athlete context block when a system prompt is present. |
 | `cached_tools()` | Builds Claude tool list from live MCP tools. Marks last tool with `cache_control` so the ~5k-token tools array is cached. |
@@ -127,8 +172,8 @@ app/static/              Exists but is empty — app mounts it so it must be pre
 | `setup_chat_response()` | Direct Claude call (no MCP tools) for the conversational intake. Prepends greeting as prior assistant turn. |
 | `extract_goal_json()` | Parses `<GOAL_JSON>…</GOAL_JSON>` block from Claude's PLAN_CONFIRMED response. |
 | `clean_claude_message()` | Strips `<GOAL_JSON>` and `PLAN_CONFIRMED` markers before showing text to users. |
-| `generate_macro_plan()` | Direct Claude call (no MCP) to produce full-season macro plan JSON. Uses Sonnet. |
-| `expand_macro_week()` | Direct Claude call (no MCP) to expand one MacroWeek into 7 PlannedSession records. Uses Haiku. |
+| `generate_macro_plan()` | Direct Claude call (no MCP) to produce full-season macro plan JSON. Uses Sonnet. Knowledge base prepended to system prompt via `load_knowledge(sport_types)`. |
+| `expand_macro_week()` | Direct Claude call (no MCP) to expand one MacroWeek into 7 PlannedSession records. Uses Haiku. Takes optional `sport_types` list; knowledge base prepended to system prompt. |
 | `generate_activity_summary()` | Lightweight Haiku call (no MCP) for 2-3 sentence coaching summary of a Strava activity. |
 | `verify_strava_connection()` / `connect_strava()` | Agentic calls that use MCP tools to check/start Strava OAuth. |
 
@@ -177,11 +222,13 @@ Tools array → cached (breakpoint on last tool). System prompts → `cache_cont
 | `weekly_reonadjust()` | Compares last week planned vs actual load; regenerates from today — bounded to 13 days |
 | `regenerate_sessions_from()` | Core replacement primitive: deletes sessions in range, calls `run_agentic_json`, inserts new sessions |
 
-### Sport colors (calendar event colors)
+### Sport colors (calendar event colors, backend)
 ```python
 run: #2563eb, bike: #16a34a, swim: #0891b2,
 strength: #9333ea, brick: #ea580c, rest/other: #6b7280
 ```
+⚠️ These are stale relative to the current design tokens — see "Known gaps" below.
+Current values are in `DESIGN.md`.
 
 ### Strava sync (`sync_strava_activities`)
 - Freshness window: 1 hour (`STRAVA_SYNC_FRESHNESS`)
@@ -193,112 +240,29 @@ strength: #9333ea, brick: #ea580c, rest/other: #6b7280
 
 ## Routes reference
 
-### `/setup` router
+Full route tables (methods, paths, request/response shape) are in **ROUTES.md** —
+open it only when working on routing or handler logic.
 
-| Method | Path | What it does |
-|---|---|---|
-| GET | `/setup` | Chat intake page. Loads existing active conversation or blank. |
-| POST | `/setup/chat` | One chat turn. Fetches Strava context on first turn. Detects PLAN_CONFIRMED. Returns HTMX partial `_chat_bubble.html`. |
-| POST | `/setup/reset` | Marks current conversation `done`; redirects to fresh `/setup`. |
-| POST | `/setup/generate` | Reads `goal_json` from conversation, creates Goal, calls `generate_initial_plan`, redirects to `/calendar` via HX-Redirect. Shows overlay during generation. |
-| GET | `/setup/refine` | Refine page showing current plan table + chat form. |
-| POST | `/setup/refine/chat` | Applies freeform instruction via `refine_plan()`. Returns `_refine_response.html` with OOB plan table update. |
-| POST | `/setup/connect-strava` | Calls `connect_strava()` via MCP. |
-| POST | `/setup/verify-connection` | Calls `verify_strava_connection()` via MCP. |
-
-### `/calendar` router
-
-| Method | Path | What it does |
-|---|---|---|
-| GET | `/calendar` | Full calendar page. Triggers `maybe_auto_expand` before rendering. |
-| GET | `/calendar/events` | FullCalendar events API. Returns planned sessions + macro week banners (unexpanded) + Strava activities as JSON. |
-| GET | `/calendar/session/{id}` | Session detail HTMX partial (side panel). |
-| GET | `/calendar/activity/{id}` | Activity detail HTMX partial. Fetches GPS/HR/pace streams lazily; generates AI summary if missing. |
-| POST | `/calendar/week/{macro_week_id}/expand` | Expands a MacroWeek on demand. Returns JSON `{ok, sessions_count}`. |
-| POST | `/calendar/session/{id}/adjust` | Adjusts session + following sessions via Claude. Body: `{"instruction": "..."}`. Returns JSON `{ok}`. |
-
-### `/dashboard` router
-
-| Method | Path | What it does |
-|---|---|---|
-| GET | `/dashboard` | Dashboard page with stat cards, Chart.js bar chart, weekly table. |
-| POST | `/dashboard/re-adjust` | Calls `weekly_reonadjust`, redirects to `/dashboard`. |
-
-### `/` (main.py)
-- `GET /` → redirects to `/setup`
-- HTTP middleware `inject_plan_state` → sets `request.state.has_plan` (used by base.html nav to gate Calendar/Dashboard links)
+Quick orientation: three routers — `app/routers/setup.py`, `calendar.py`,
+`dashboard.py`. Root `/` redirects to `/setup`. `inject_plan_state` middleware
+(`main.py`) sets nav-gating template state on every request (see below).
 
 ---
 
 ## Frontend / templates
 
-### Design system (base.html)
+Full design system reference (CSS custom properties, fonts, typography scale,
+component classes, theme toggling, animations, calendar JS behaviour) is in
+**DESIGN.md** — open it only when touching templates, CSS, or frontend JS.
 
-All CSS is inline in a single `<style>` block in `base.html`. The design uses CSS custom properties defined in three layers:
-- `:root` (dark defaults), `[data-theme="dark"]`, `[data-theme="light"]`
-- Compat aliases: `--text:var(--ink)`, `--surface:var(--panel)`, `--surface2:var(--panel2)`, `--border:var(--line)`, `--accent:var(--hot)`, `--secondary:var(--muted)`
+Backend-relevant facts worth keeping here even so:
 
-**Token names (preferred):**
-- `--bg` (page bg), `--panel` (card bg), `--panel2` (secondary bg), `--chip` (badge bg)
-- `--line`, `--line2` (borders), `--ink`, `--ink2` (text), `--muted`, `--muted2` (subdued text)
-- `--hot` (brand orange: `#FF5A1F` dark / `#E8480E` light)
-- `--barbg` (chart bar bg), `--actual`, `--actual-bg`, `--actual-bd` (Strava activity color)
-- `--hot-bd`, `--hot-wash` (orange callout border/bg)
-
-**Fonts:**
-- `'Newsreader', serif` — display headings, stat values
-- `'Space Grotesk', sans-serif` — body, UI, buttons
-- `'JetBrains Mono', monospace` — labels, eyebrows, numbers, table mono
-
-**Typography scale:** h1 = 48px Newsreader (34px mobile), h2 = 29px, h3 = 21px, h4 = 9.5px JetBrains Mono uppercase
-
-**Component CSS classes in base.html:**
-- `.card` — bordered card (14px radius)
-- `.badge`, `.badge.zone-1` through `.badge.zone-5` — inline chip
-- `.stat-grid` / `.stat-card` / `.stat-label` / `.stat-value` / `.stat-sub` — KPI card grid
-- `.btn`, `.btn-primary`, `.btn-ghost` — buttons
-- `.setup-eyebrow` — JetBrains Mono 11px hot-colored label
-- `.step-chip`, `.step-num` (`.active`=hot, `.done`=#2FD3C0, default=muted2) — step indicator
-- `.chat-layout`, `.chat-window`, `.msg-row`, `.bubble` (`.user`=hot bg, `.claude`=panel2 bg) — chat UI
-- `.typing-dots` — animated three-dot loader
-- `.chat-input-bar`, `.chat-input-row`, `.chat-send-btn` — rounded pill input + circle send button
-- `.gen-cta-btn` — pill-shaped orange generate button with box-shadow
-- `.ai-callout` — orange-border callout for Claude summaries
-- `.act-stat-grid` / `.act-stat-cell` / `.act-stat-label` / `.act-stat-value` — activity stats 3-col grid
-- `.ar-desktop-only` / `.ar-mobile-only` — visibility breakpoint helpers (760px)
-- `#gen-overlay` + `.visible` class — generation full-screen spinner
-
-**Theme toggling:**
-- JS: `arApplyTheme(theme)`, `arSetTheme(theme)`. Applied before first paint from `localStorage['arete-theme']`.
-- Pages with charts set `window.arRebuildCharts = buildChart` so theme toggle refreshes them.
-- `window.arRebuildCharts` hook is called by `arApplyTheme`.
-
-**Animations:** `ar-spin` (spinner), `ar-td` (typing dots), `ar-slide`, `ar-fade`, `ar-rise`, `ar-pop-modal` (centered modal keyframe including translate in both states).
-
-### Middleware-injected template state (app/main.py)
-
-`inject_plan_state` middleware adds to `request.state`:
-- `has_plan` (bool) — gates nav links to Calendar/Dashboard
-- `days_to_race` (int | None) — from active Goal.race_date
-- `race_name_short` (str | None) — first 14 chars of race name, uppercased
-- `athlete_initials` (str) — 1-2 char initials from Athlete.display_name
-
-### Calendar (calendar.html + calendar.py)
-
-- FullCalendar 6 with `dayGridMonth` default; Month/Week toggle via `calSetView()`.
-- Event CSS classes: `.planned`, `.actual`, `.macro-week`, `.sport-{type}`.
-- "This week" strip rendered from server context vars: `phase_tag`, `week_theme`, `week_total_sessions`, `week_planned_load`.
-- `openPanel(html)` / `closePanel()` — desktop: `ar-pop-modal` centered modal (520px); mobile: full-screen slide-in from right.
-- Backdrop click closes panel. Escape key: not yet implemented.
-- Session adjustment: `fetch()` JSON POST (not HTMX) + `calendar.refetchEvents()` on success.
-
-### Sport colors (calendar & templates)
-- Run: `#FF5A1F`, Bike: `#34A9F0`, Swim: `#2FD3C0`, Strength: `#E2B23C`, Other: `#3A5A7A`
-- Note: `planner.py:SPORT_COLORS` still uses old values (`run:#2563eb` etc.) — these drive FullCalendar event colors. The template sport dots use the new design values above.
-
-### Responsive breakpoint: 760px
-- Below 760px: hamburger nav, h1 = 34px, 2-col stat grid, full-screen slide-in panel.
-- Above 760px: desktop nav, desktop modal for session detail.
+- All CSS lives inline in `base.html`'s single `<style>` block — there are no
+  separate CSS files.
+- `inject_plan_state` middleware (`app/main.py`) injects into every template
+  context: `has_plan` (bool, gates Calendar/Dashboard nav links), `days_to_race`
+  (int | None), `race_name_short` (str | None), `athlete_initials` (str).
+- Responsive breakpoint: 760px (hamburger nav / full-screen panels below it).
 
 ---
 
@@ -307,11 +271,13 @@ All CSS is inline in a single `<style>` block in `base.html`. The design uses CS
 - `PlannedSession.strava_activity_id` FK exists but is never populated (no matching logic)
 - `PlannedSession.status` field is never updated from `"planned"` (no completion tracking)
 - `Goal.target_time` collected in intake but not passed to Claude in prompts
-- `output_config={"effort": effort}` in `_agentic_loop` — verify this is a valid API param; Claude's extended thinking uses `thinking`, not `output_config`
+- **Sport color drift:** `planner.py:SPORT_COLORS` (backend, drives FullCalendar event
+  pills) uses old hex values; template sport dots use newer design-token values
+  (see `DESIGN.md`). Pick one source of truth — recommend a shared constants module
+  both Python and Jinja read from, rather than two hardcoded lists.
 - `app/static/` is empty (mounted, must exist)
 - No tests of any kind
 - No way to view/manage archived plans or edit goals after generation
-- Sport colors in `planner.py:SPORT_COLORS` use old values (run=`#2563eb` etc.) — FullCalendar event pills use these; template sport dots use new design values
 - `weekly_reonadjust` has a typo in its function name (extra `o`)
 
 ---
@@ -324,3 +290,4 @@ All CSS is inline in a single `<style>` block in `base.html`. The design uses CS
 4. **Cascading regeneration is bounded.** `_bounded_range_end` caps regeneration to 13 days so it fits within `MAX_TOKENS_ADJUSTMENT`.
 5. **`clean_claude_message()` must be applied before any Claude response is shown to the user.** The raw response may contain `<GOAL_JSON>…</GOAL_JSON>` and `PLAN_CONFIRMED` markers.
 6. **Prompt caching breakpoints.** The last tool in the tools list and the last tool_result in each loop iteration carry `cache_control: ephemeral`. Don't remove these — they significantly reduce API costs on multi-turn agentic calls.
+7. **Don't switch Claude Code model or effort level mid-session.** It invalidates the cached prompt prefix (point 6) and forces a full, expensive re-read. Pick both at session start — see "Working on this repo with Claude Code" above.

@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.mcp_client import strava_mcp
-from app.models import Athlete, PlannedSession, TrainingPlan
+from app.models import Athlete, MacroPlan, MacroWeek, PlannedSession, TrainingPlan
 from app.planner import activity_load, sync_strava_activities, weekly_reonadjust
 
 router = APIRouter()
@@ -37,16 +37,32 @@ async def _weekly_breakdown(db: Session) -> list[dict]:
     if plan is None:
         return []
 
-    sessions = db.exec(
-        select(PlannedSession).where(PlannedSession.plan_id == plan.id).order_by(PlannedSession.date)
-    ).all()
-    if not sessions:
+    # MacroWeek is the authoritative week list — covers the full season
+    macro_plan = db.exec(
+        select(MacroPlan).where(MacroPlan.training_plan_id == plan.id)
+    ).first()
+    if macro_plan is None:
         return []
 
-    range_start = sessions[0].date
-    chart_end = sessions[-1].date
-    fetch_end = min(chart_end, date.today())
+    macro_weeks = db.exec(
+        select(MacroWeek)
+        .where(MacroWeek.macro_plan_id == macro_plan.id)
+        .order_by(MacroWeek.start_date)
+    ).all()
+    if not macro_weeks:
+        return []
 
+    # Sum session loads for expanded weeks
+    sessions = db.exec(
+        select(PlannedSession).where(PlannedSession.plan_id == plan.id)
+    ).all()
+    planned_by_week: dict = defaultdict(float)
+    for s in sessions:
+        planned_by_week[_week_start(s.date)] += s.planned_load or 0
+
+    # Sync Strava up to today across the full plan range
+    range_start = macro_weeks[0].start_date
+    fetch_end = min(macro_weeks[-1].start_date + timedelta(days=6), date.today())
     activities = []
     if fetch_end >= range_start:
         try:
@@ -54,30 +70,36 @@ async def _weekly_breakdown(db: Session) -> list[dict]:
         except Exception:
             activities = []
 
-    planned_by_week: dict = defaultdict(float)
-    for s in sessions:
-        planned_by_week[_week_start(s.date)] += s.planned_load or 0
-
     actual_by_week: dict = defaultdict(float)
     for a in activities:
         actual_by_week[_week_start(a.start_date.date())] += activity_load(a)
 
     weeks = []
-    cursor = _week_start(range_start)
-    final = _week_start(chart_end)
-    while cursor <= final:
-        planned = planned_by_week.get(cursor, 0)
-        actual = actual_by_week.get(cursor, 0)
-        compliance = round(actual / planned * 100) if planned > 0 else None
-        weeks.append(
-            {
-                "week_start": cursor.isoformat(),
-                "planned_load": round(planned, 1),
-                "actual_load": round(actual, 1),
-                "compliance": compliance,
-            }
-        )
-        cursor += timedelta(days=7)
+    for mw in macro_weeks:
+        ws = mw.start_date  # already Monday-normalised in planner.py
+        actual = actual_by_week.get(ws, 0)
+
+        if mw.is_expanded:
+            planned = planned_by_week.get(ws, 0)
+            is_estimate = False
+            compliance = round(actual / planned * 100) if planned > 0 else None
+        else:
+            # Proxy: macro hours → minutes (same order of magnitude as summed session loads)
+            total_hours = mw.hours_run + mw.hours_bike + mw.hours_swim + mw.hours_strength
+            planned = round(total_hours * 60, 1)
+            is_estimate = True
+            compliance = None  # units differ from actual; don't show compliance
+
+        weeks.append({
+            "week_start": ws.isoformat(),
+            "planned_load": round(planned, 1),
+            "actual_load": round(actual, 1),
+            "compliance": compliance,
+            "phase": mw.phase,
+            "theme": mw.theme,
+            "is_estimate": is_estimate,
+        })
+
     return weeks
 
 

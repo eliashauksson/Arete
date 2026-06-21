@@ -254,6 +254,13 @@ async def _expand_week(
         for s in prev_sessions_db
     ]
 
+    sport_types: list[str] = ["run"]
+    if goal.sport_types:
+        try:
+            sport_types = json.loads(goal.sport_types)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     week_dict = {
         "week_number": macro_week.week_number,
         "start_date": macro_week.start_date.isoformat(),
@@ -265,7 +272,7 @@ async def _expand_week(
         "hours_swim": macro_week.hours_swim,
         "hours_strength": macro_week.hours_strength,
     }
-    data = await _claude_expand_week(week_dict, goal_context, prev_sessions)
+    data = await _claude_expand_week(week_dict, goal_context, prev_sessions, sport_types)
     sessions_data = data.get("sessions", [])
 
     week_end = macro_week.start_date + timedelta(days=6)

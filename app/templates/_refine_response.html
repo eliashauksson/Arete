@@ -1,14 +1,15 @@
-<div class="msg-user">
-  <div class="msg-label">You</div>
-  {{ instruction }}
+<div class="msg-row user">
+  <div class="bubble user">{{ instruction }}</div>
 </div>
 {% if error %}
-<div class="msg-assistant msg-error">
-  <strong>Error:</strong> {{ error }}
+<div class="msg-row claude">
+  <div class="bubble claude">
+    <span style="color:#f87171;"><strong>Error:</strong> {{ error }}</span>
+  </div>
 </div>
 {% else %}
-<div class="msg-assistant">
-  Plan updated.
+<div class="msg-row claude">
+  <div class="bubble claude">Plan updated.</div>
 </div>
 {% endif %}
 

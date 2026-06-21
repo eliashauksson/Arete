@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.claude_client import generate_activity_summary, mcp_result_to_text
 from app.db import get_session
@@ -34,14 +34,57 @@ async def calendar_page(request: Request, db: Session = Depends(get_session)):
     ).first()
     if plan is None:
         return RedirectResponse("/setup", status_code=303)
-    # Auto-expand the next week if the rolling window is running low.
     goal = db.get(Goal, plan.goal_id)
     if goal:
         try:
             await maybe_auto_expand(db, plan, goal)
         except Exception as exc:
             print(f"[calendar] auto-expand failed: {exc}")
-    return templates.TemplateResponse(request, "calendar.html", {})
+
+    # Phase tag and week strip data (DB only, no Strava call)
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    phase_tag = None
+    week_theme = ""
+    week_total_sessions = 0
+    week_planned_load = 0
+
+    macro_plan = db.exec(select(MacroPlan).where(MacroPlan.training_plan_id == plan.id)).first()
+    if macro_plan:
+        current_week = db.exec(
+            select(MacroWeek)
+            .where(MacroWeek.macro_plan_id == macro_plan.id)
+            .where(MacroWeek.start_date <= today)
+            .order_by(MacroWeek.start_date.desc())
+        ).first()
+        if current_week:
+            total_weeks = db.exec(
+                select(func.count(MacroWeek.id)).where(MacroWeek.macro_plan_id == macro_plan.id)
+            ).one()
+            phase_tag = f"{current_week.phase.title()} Phase — Week {current_week.week_number} / {total_weeks}"
+            week_theme = current_week.theme
+
+    week_end = this_monday + timedelta(days=6)
+    week_sessions = db.exec(
+        select(PlannedSession)
+        .where(PlannedSession.plan_id == plan.id)
+        .where(PlannedSession.date >= this_monday)
+        .where(PlannedSession.date <= week_end)
+        .where(PlannedSession.sport_type != "rest")
+    ).all()
+    week_total_sessions = len(week_sessions)
+    week_planned_load = round(sum(s.planned_load or 0 for s in week_sessions))
+
+    import calendar as _cal
+    month_label = today.strftime("%B %Y")
+
+    return templates.TemplateResponse(request, "calendar.html", {
+        "phase_tag": phase_tag,
+        "month_label": month_label,
+        "week_theme": week_theme,
+        "week_total_sessions": week_total_sessions,
+        "week_planned_load": week_planned_load,
+    })
 
 
 @router.get("/calendar/events")

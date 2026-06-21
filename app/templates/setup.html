@@ -1,21 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Setup — Arete{% endblock %}
 {% block content %}
+<style>
+  /* Setup page: header above chat is ~190px tall + 34px top padding + 20px bottom = 244px overhead */
+  main { padding-bottom: 20px; }
+  .chat-layout { height: calc(100vh - var(--nav-h) - 244px); min-height: 300px; }
+  @media(max-width:760px){ .chat-layout { height: calc(100vh - var(--nav-h) - 260px); } }
+</style>
+
+<div class="setup-eyebrow">Setup &middot; AI Intake Coach</div>
+<h1 style="font-size:36px;margin-bottom:4px;">Let&rsquo;s build your plan</h1>
+<p style="color:var(--muted);font-size:13.5px;margin:4px 0 18px;">Chat with your AI coach about your goals, schedule and experience. Claude will design a personalised season plan.</p>
+
+<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
+  <div class="step-chip {% if not messages %}active{% else %}done{% endif %}">
+    <span class="step-num {% if not messages %}active{% else %}done{% endif %}">1</span>
+    Goals
+  </div>
+  <div class="step-chip {% if messages %}active{% endif %}">
+    <span class="step-num {% if messages %}active{% endif %}">2</span>
+    Availability
+  </div>
+  <div class="step-chip">
+    <span class="step-num">3</span>
+    Generate
+  </div>
+</div>
 
 <div class="chat-layout">
-  <div class="chat-header">
-    <h1 style="margin-bottom:0.15em">Training intake</h1>
-    <p>Chat with your AI coach to build a personalised plan.</p>
-  </div>
-
   <div class="chat-window" id="chat-window">
 
     {% if not messages %}
-    <!-- Initial greeting shown when no conversation exists -->
     <div class="msg-row claude">
-      <div class="bubble claude">Hi! I'm your Arete training coach. What are you currently training for — a specific race, general fitness, or something else?</div>
+      <div class="bubble claude">Hi! I&rsquo;m your Arete training coach. What are you currently training for &mdash; a specific race, general fitness, or something else?</div>
     </div>
-
     {% else %}
     {% for msg in messages %}
     <div class="msg-row {{ 'user' if msg.role == 'user' else 'claude' }}">
@@ -26,9 +44,8 @@
 
   </div>
 
-  <!-- Typing indicator (outside scroll area so it's always visible) -->
-  <div class="msg-row claude" id="typing-row" style="display:none;margin-bottom:0.5em">
-    <div class="bubble claude" style="padding:0.9em 1.1em">
+  <div class="msg-row claude" id="typing-row" style="display:none;margin-bottom:4px;padding:0 0 2px;">
+    <div class="bubble claude" style="padding:14px 16px;">
       <div class="typing-dots"><span></span><span></span><span></span></div>
     </div>
   </div>
@@ -41,17 +58,17 @@
           hx-on::after-request="afterChat()">
       <div class="chat-input-row">
         <input type="text" name="message" id="msg-input"
-               placeholder="Type here…" autocomplete="off" autofocus required>
-        <button type="submit" class="chat-send-btn" id="send-btn" title="Send">↑</button>
+               placeholder="Type here&hellip;" autocomplete="off" autofocus required>
+        <button type="submit" class="chat-send-btn" id="send-btn" title="Send">&uarr;</button>
       </div>
     </form>
-    <div class="chat-restart-link">
-      {% if messages %}
+    {% if messages %}
+    <div style="text-align:center;margin-top:6px;">
       <form method="post" action="/setup/reset" style="display:inline">
-        <button type="submit" style="background:none;border:none;color:var(--muted);font-size:0.8em;cursor:pointer;padding:0">Start fresh conversation</button>
+        <button type="submit" style="background:none;border:none;color:var(--muted2);font-size:11.5px;cursor:pointer;padding:0;font-family:'Space Grotesk',sans-serif;">Start fresh conversation</button>
       </form>
-      {% endif %}
     </div>
+    {% endif %}
   </div>
 </div>
 
@@ -70,15 +87,13 @@ function afterChat() {
   scrollBottom();
 }
 
-document.getElementById('chat-form').addEventListener('submit', function () {
+document.getElementById('chat-form').addEventListener('submit', function() {
   document.getElementById('typing-row').style.display = 'flex';
   document.getElementById('send-btn').disabled = true;
-  // readOnly keeps the value in form serialization; disabled would exclude it (→ 422)
   document.getElementById('msg-input').readOnly = true;
   setTimeout(scrollBottom, 50);
 });
 
-// Scroll to bottom on initial load if there are messages
 scrollBottom();
 </script>
 {% endblock %}

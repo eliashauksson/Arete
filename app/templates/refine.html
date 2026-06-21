@@ -2,42 +2,47 @@
 {% block title %}Refine plan — Arete{% endblock %}
 {% block content %}
 
-<div class="steps">
-  <div class="step done"><span class="step-num">1</span> Connect &amp; Goal</div>
-  <div class="step active"><span class="step-num">2</span> Refine Plan</div>
-  <div class="step"><span class="step-num">3</span> Start Training</div>
+<div class="setup-eyebrow">Plan Builder &middot; Step 2</div>
+<h1>Refine your plan</h1>
+<p style="color:var(--muted);font-size:14px;margin:6px 0 22px;">Tell Claude how to adjust the plan — preferred days, blocked days, session length, workout types. When you&rsquo;re happy, click <strong style="color:var(--ink);">Looks good</strong>.</p>
+
+<div style="display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap;">
+  <div class="step-chip done">
+    <span class="step-num done">1</span>
+    Goals &amp; intake
+  </div>
+  <div class="step-chip active">
+    <span class="step-num active">2</span>
+    Refine plan
+  </div>
+  <div class="step-chip">
+    <span class="step-num">3</span>
+    Start training
+  </div>
 </div>
 
-<h1>Refine your plan</h1>
-<p style="color:var(--muted);margin-bottom:1.5em">
-  Tell Claude how to adjust the plan — preferred days, blocked days, session length, workout types.
-  When you're happy, click <strong style="color:var(--text)">Looks good</strong>.
-</p>
-
-<div id="plan-view" style="margin-bottom:1.5em">
+<div id="plan-view" style="margin-bottom:20px;">
   {% include "_plan_table.html" %}
 </div>
 
-<hr>
+<div style="border-top:1px solid var(--line);padding-top:20px;margin-bottom:18px;">
+  <div id="chat-history" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;"></div>
 
-<div id="chat-history" class="chat-history"></div>
+  <form hx-post="/setup/refine/chat"
+        hx-target="#chat-history"
+        hx-swap="beforeend"
+        hx-indicator="#refine-spinner"
+        hx-on::after-request="this.reset()">
+    <div style="position:relative;display:flex;align-items:flex-end;gap:10px;">
+      <textarea name="instruction" rows="2"
+        placeholder="e.g. I prefer long runs on Sunday, block Wednesdays, keep all sessions under 75 min"
+        required
+        style="flex:1;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--ink);padding:11px 14px;font-size:13.5px;font-family:'Space Grotesk',sans-serif;resize:vertical;box-sizing:border-box;"></textarea>
+      <button type="submit" class="btn-primary" style="border-radius:10px;gap:6px;align-self:flex-end;">&#10022; Ask Claude</button>
+    </div>
+    <span id="refine-spinner" class="htmx-indicator" style="font-size:12.5px;color:var(--hot);margin-top:6px;display:block;">Claude is updating your plan&hellip;</span>
+  </form>
+</div>
 
-<form hx-post="/setup/refine/chat"
-      hx-target="#chat-history"
-      hx-swap="beforeend"
-      hx-indicator="#refine-spinner"
-      hx-on::after-request="this.reset()">
-  <div style="margin-bottom:0.5em">
-    <textarea name="instruction" rows="2"
-      placeholder="e.g. I prefer long runs on Sunday, block Wednesdays, keep all sessions under 75 min"
-      required></textarea>
-  </div>
-  <div style="display:flex;align-items:center;gap:0.75em">
-    <button type="submit">Send to Claude</button>
-    <span id="refine-spinner" class="htmx-indicator">Claude is updating your plan…</span>
-  </div>
-</form>
-
-<hr>
-<a href="/calendar" class="btn btn-primary">Looks good — go to calendar →</a>
+<a href="/calendar" class="btn-primary" style="border-radius:10px;text-decoration:none;display:inline-flex;">Looks good &mdash; go to calendar &rarr;</a>
 {% endblock %}

@@ -1,9 +1,52 @@
 {% extends "base.html" %}
 {% block title %}Calendar — Arete{% endblock %}
 {% block content %}
-<h1>Calendar</h1>
 
-<div id="calendar"></div>
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:22px;">
+  <div>
+    {% if phase_tag %}
+    <div class="setup-eyebrow">{{ phase_tag }}</div>
+    {% endif %}
+    <h1>{{ month_label }}</h1>
+    {% if week_theme %}
+    <p style="color:var(--muted);font-size:13.5px;margin:9px 0 0;">{{ week_theme }}</p>
+    {% endif %}
+  </div>
+  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+    <div style="display:flex;gap:13px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#FF5A1F;display:inline-block;"></span>Run</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#34A9F0;display:inline-block;"></span>Bike</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#2FD3C0;display:inline-block;"></span>Swim</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:#E2B23C;display:inline-block;"></span>Strength</span>
+    </div>
+    <div style="display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;" id="view-toggle">
+      <button onclick="calSetView('dayGridMonth')" id="btn-month" style="padding:8px 15px;font-size:12.5px;border:none;border-radius:0;background:var(--hot);color:#fff;">Month</button>
+      <button onclick="calSetView('dayGridWeek')"  id="btn-week"  style="padding:8px 15px;font-size:12.5px;border:none;border-radius:0;border-left:1px solid var(--line);background:transparent;color:var(--muted);">Week</button>
+    </div>
+  </div>
+</div>
+
+{% if week_total_sessions %}
+<div style="display:flex;align-items:stretch;margin-bottom:22px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);flex-wrap:wrap;">
+  <div style="flex:1.4;min-width:180px;padding:16px 20px;border-right:1px solid var(--line);">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.14em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;">This Week{% if week_theme %} &middot; {{ week_theme }}{% endif %}</div>
+    <div style="display:flex;align-items:baseline;gap:8px;">
+      <span style="font-family:'Newsreader',serif;font-size:30px;line-height:1;color:var(--ink);">{{ week_planned_load }}</span>
+      <span style="color:var(--muted2);font-size:14px;">planned load</span>
+    </div>
+    <div style="margin-top:11px;height:5px;border-radius:3px;background:var(--barbg);overflow:hidden;">
+      <div style="height:100%;width:40%;background:linear-gradient(90deg,var(--hot),#ff8a4f);border-radius:3px;"></div>
+    </div>
+  </div>
+  <div style="flex:1;min-width:120px;padding:16px 20px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.14em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;">Sessions</div>
+    <div style="font-family:'Newsreader',serif;font-size:30px;line-height:1;color:var(--ink);">{{ week_total_sessions }}</div>
+    <div style="color:var(--muted);font-size:12px;margin-top:7px;">this week</div>
+  </div>
+</div>
+{% endif %}
+
+<div id="calendar" style="border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);"></div>
 
 <div id="detail-backdrop"></div>
 <div id="session-detail"></div>
@@ -14,79 +57,92 @@
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
 
 <style>
-  /* ── FullCalendar dark theme ── */
+  /* ── FullCalendar CSS vars — all reference Arete tokens so they adapt on theme switch ── */
   :root {
-    --fc-border-color:                #1E3A52;
-    --fc-button-bg-color:             #152436;
-    --fc-button-border-color:         #1E3A52;
-    --fc-button-hover-bg-color:       #1A2E44;
-    --fc-button-hover-border-color:   #3A5A7A;
-    --fc-button-active-bg-color:      #FC4C02;
-    --fc-button-active-border-color:  #FC4C02;
-    --fc-today-bg-color:              rgba(252,76,2,0.06);
-    --fc-page-bg-color:               #0D1B2A;
-    --fc-neutral-bg-color:            #152436;
-    --fc-list-event-hover-bg-color:   #1A2E44;
-    --fc-event-bg-color:              #FC4C02;
-    --fc-event-border-color:          #FC4C02;
-    --fc-event-text-color:            #ffffff;
+    --fc-border-color:             var(--line2);
+    --fc-button-bg-color:          var(--panel);
+    --fc-button-border-color:      var(--line);
+    --fc-button-hover-bg-color:    var(--panel2);
+    --fc-button-hover-border-color:var(--muted2);
+    --fc-button-active-bg-color:   var(--hot);
+    --fc-button-active-border-color:var(--hot);
+    --fc-today-bg-color:           rgba(255,90,31,0.06);
+    --fc-page-bg-color:            var(--panel);
+    --fc-neutral-bg-color:         var(--panel2);
+    --fc-list-event-hover-bg-color:var(--panel2);
+    --fc-event-bg-color:           var(--hot);
+    --fc-event-border-color:       var(--hot);
+    --fc-event-text-color:         var(--ink);
   }
-
-  .fc { color: #FFFFFF; }
-  .fc .fc-toolbar-title { font-family: Georgia, serif; font-size: 1.2em !important; }
+  /* Base FC color — cascades to all unset child text */
+  .fc { color: var(--ink) !important; font-family: 'Space Grotesk', sans-serif; }
+  .fc .fc-toolbar-title { font-family: 'Newsreader', serif; font-size: 1.15em !important; color: var(--ink) !important; }
   .fc .fc-col-header-cell-cushion {
-    color: #6B8FAD; font-size: 0.78em;
-    text-transform: uppercase; letter-spacing: 0.07em;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--muted2) !important; text-transform: uppercase; letter-spacing: 0.12em;
     text-decoration: none;
   }
-  .fc .fc-daygrid-day-number { color: #6B8FAD; text-decoration: none; font-size: 0.88em; }
-  .fc .fc-day-today .fc-daygrid-day-number { color: #FC4C02; font-weight: 700; }
-  .fc .fc-button { font-family: inherit !important; font-size: 0.82em !important; padding: 0.35em 0.8em !important; }
-  .fc .fc-button-primary { background: #152436 !important; border-color: #1E3A52 !important; color: white !important; }
-  .fc .fc-button-primary:not(:disabled):hover { background: #1A2E44 !important; border-color: #3A5A7A !important; }
+  .fc .fc-daygrid-day-number {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--muted2) !important; text-decoration: none;
+  }
+  .fc .fc-day-today .fc-daygrid-day-number { color: var(--hot) !important; font-weight: 700; }
+  .fc .fc-day-today { box-shadow: inset 0 0 0 1.5px var(--hot); }
+  .fc .fc-button {
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 12.5px !important; padding: 6px 13px !important;
+    border-radius: 8px !important;
+  }
+  .fc .fc-button-primary { background: var(--panel) !important; border-color: var(--line) !important; color: var(--ink) !important; }
+  .fc .fc-button-primary:not(:disabled):hover { background: var(--panel2) !important; border-color: var(--muted2) !important; }
   .fc .fc-button-primary.fc-button-active,
-  .fc .fc-button-primary:not(:disabled):active { background: #FC4C02 !important; border-color: #FC4C02 !important; }
+  .fc .fc-button-primary:not(:disabled):active { background: var(--hot) !important; border-color: var(--hot) !important; color: #fff !important; }
+  .fc .fc-daygrid-day-frame { min-height: 110px; }
 
-  /* planned events — orange pills */
+  /* planned event pills */
   .fc-event.planned {
-    background: #FC4C02 !important;
-    border-color: #FC4C02 !important;
-    color: white !important;
-    font-size: 0.8em; border-radius: 3px;
+    background: var(--panel2) !important; border: 1px solid var(--line) !important;
+    color: var(--ink2) !important; font-size: 11px; border-radius: 6px; padding: 2px 0;
   }
-  /* rest days — muted */
   .fc-event.planned.sport-rest {
-    background: rgba(30,58,82,0.7) !important;
-    border-color: #1E3A52 !important;
-    color: #6B8FAD !important;
+    background: transparent !important; border: 1px dashed var(--line) !important;
+    color: var(--muted) !important;
   }
-  /* completed strava activities — white pills */
+  /* actual strava activity pills */
   .fc-event.actual {
-    background: rgba(255,255,255,0.12) !important;
-    border: 1px solid rgba(255,255,255,0.3) !important;
-    color: white !important;
-    font-size: 0.8em; border-radius: 3px;
-    opacity: 1 !important;
+    background: var(--actual-bg) !important; border: 1px solid var(--actual-bd) !important;
+    color: var(--actual) !important; font-size: 11px; border-radius: 6px; padding: 2px 0;
   }
-  /* macro week summary banners — muted blue spanning the full week */
+  /* macro week banners */
   .fc-event.macro-week {
-    background: rgba(58,90,122,0.25) !important;
-    border: 1px solid #3A5A7A !important;
-    color: #7BB8E0 !important;
-    font-size: 0.75em; border-radius: 3px;
-    cursor: pointer;
+    background: rgba(58,90,122,0.20) !important; border: 1px solid var(--muted2) !important;
+    color: #7BB8E0 !important; font-size: 10px; border-radius: 4px; cursor: pointer;
   }
-  .fc-event.macro-week:hover {
-    background: rgba(58,90,122,0.4) !important;
-    border-color: #7BB8E0 !important;
-  }
+  .fc-event.macro-week:hover { background: rgba(58,90,122,0.35) !important; border-color: #7BB8E0 !important; }
+
+  /* Sport color left bars via pseudo-elements on the event title */
+  .fc-daygrid-event-dot { display: none !important; }
+
+  /* list view (mobile agenda) */
+  .fc-list-event-title { font-size: 13px; }
+  .fc-list-day-cushion { background: var(--panel2) !important; }
+  .fc-list-event:hover td { background: var(--panel2) !important; }
 </style>
 
 <script>
-Chart.defaults.color = '#6B8FAD';
-Chart.defaults.borderColor = '#1E3A52';
+Chart.defaults.color = 'var(--muted2)';
 
 var _calendarRef = null;
+var _currentView = 'dayGridMonth';
+
+function calSetView(view) {
+  _currentView = view;
+  if (_calendarRef) _calendarRef.changeView(view);
+  document.getElementById('btn-month').style.background = view === 'dayGridMonth' ? 'var(--hot)' : 'transparent';
+  document.getElementById('btn-month').style.color     = view === 'dayGridMonth' ? '#fff'     : 'var(--muted)';
+  document.getElementById('btn-week').style.background = view === 'dayGridWeek'  ? 'var(--hot)' : 'transparent';
+  document.getElementById('btn-week').style.color      = view === 'dayGridWeek'  ? '#fff'     : 'var(--muted)';
+}
 
 function openPanel(html) {
   var panel = document.getElementById('session-detail');
@@ -110,69 +166,69 @@ function initActivityDetail() {
     if (coords.length > 0) {
       var map = L.map(mapEl);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         subdomains: 'abcd', maxZoom: 20
       }).addTo(map);
-      var line = L.polyline(coords, { color: '#FC4C02', weight: 3 }).addTo(map);
+      var line = L.polyline(coords, { color: '#FF5A1F', weight: 3 }).addTo(map);
       map.fitBounds(line.getBounds());
-      setTimeout(function () { map.invalidateSize(); }, 50);
+      setTimeout(function() { map.invalidateSize(); }, 50);
     }
   }
+
+  var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+  var hrFill  = dark ? 'rgba(255,90,31,0.12)' : 'rgba(232,72,14,0.12)';
+  var secFill = dark ? 'rgba(52,169,240,0.12)' : 'rgba(47,120,200,0.14)';
+  var sec     = dark ? '#34A9F0' : '#2F78C8';
+  var grid    = dark ? '#16202b' : '#E6DFD0';
+  var tick    = dark ? '#52647A' : '#9AA3AC';
+  var hot     = dark ? '#FF5A1F' : '#E8480E';
 
   function makeChart(id, borderColor, bgColor, reversed) {
     var el = document.getElementById(id);
     if (!el || !el.dataset.times) return;
     var times  = JSON.parse(el.dataset.times);
     var values = JSON.parse(el.dataset.values);
-    var step = Math.max(1, Math.floor(times.length / 10));
-    var labels = times.map(function (t, i) {
+    var step = Math.max(1, Math.floor(times.length / 8));
+    var labels = times.map(function(t, i) {
       return i % step === 0 ? Math.round(t / 60) + 'm' : '';
     });
     new Chart(el, {
       type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          data: values,
-          borderColor: borderColor,
-          backgroundColor: bgColor,
-          borderWidth: 1.5, pointRadius: 0,
-          fill: true, tension: 0.3, spanGaps: false
-        }]
-      },
+      data: { labels: labels, datasets: [{ data: values, borderColor: borderColor,
+        backgroundColor: bgColor, borderWidth: 1.6, pointRadius: 0, fill: true, tension: 0.3, spanGaps: false }] },
       options: {
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: '#1E3A52' }, ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#6B8FAD' } },
-          y: { reverse: reversed || false, grid: { color: '#1E3A52' }, ticks: { font: { size: 10 }, color: '#6B8FAD' } }
+          x: { grid: { color: grid }, ticks: { maxTicksLimit: 8, font: { size: 9 }, color: tick } },
+          y: { reverse: reversed || false, grid: { color: grid }, ticks: { font: { size: 9 }, color: tick, maxTicksLimit: 5 } }
         }
       }
     });
   }
-
-  makeChart('act-hr',   '#FC4C02', 'rgba(252,76,2,0.1)',       false);
-  makeChart('act-pace', '#3A5A7A', 'rgba(58,90,122,0.15)',     true);
+  makeChart('act-hr',   hot, hrFill,  false);
+  makeChart('act-pace', sec, secFill, true);
 }
 
 function expandWeek(weekId) {
   var panel = document.getElementById('session-detail');
-  panel.innerHTML = '<div style="padding:2em;color:var(--muted)">Expanding week — building sessions…</div>';
+  panel.innerHTML = '<div style="padding:2em;color:var(--muted)">Expanding week &mdash; building sessions&hellip;</div>';
   fetch('/calendar/week/' + weekId + '/expand', { method: 'POST' })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
       if (data.ok) {
         closePanel();
         if (_calendarRef) _calendarRef.refetchEvents();
       } else {
-        panel.innerHTML = '<div style="padding:2em;color:#f87171">Expansion failed: ' + (data.error || 'unknown error') + '</div>';
+        panel.innerHTML = '<div style="padding:2em;color:#f87171">Expansion failed: ' + (data.error || 'unknown') + '</div>';
       }
     })
-    .catch(function (err) {
+    .catch(function(err) {
       panel.innerHTML = '<div style="padding:2em;color:#f87171">Network error: ' + err + '</div>';
     });
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function() {
   var detailEl   = document.getElementById('session-detail');
   var backdropEl = document.getElementById('detail-backdrop');
 
@@ -180,8 +236,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   var calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
     initialView: 'dayGridMonth',
+    height: 'auto',
+    firstDay: 1,
+    headerToolbar: { left: 'prev,next today', center: 'title', right: '' },
     events: '/calendar/events',
-    eventClick: function (info) {
+    eventClick: function(info) {
       var props = info.event.extendedProps;
       if (props.kind === 'macro') {
         var parts = [];
@@ -191,22 +250,24 @@ document.addEventListener('DOMContentLoaded', function () {
         if (props.hoursStrength) parts.push(props.hoursStrength + 'h strength');
         var loadStr = parts.join(' · ') || 'rest week';
         openPanel(
-          '<button class="detail-close" onclick="closePanel()">✕</button>' +
-          '<h4 style="color:var(--muted);margin-bottom:0.5em">WEEK ' + props.weekNum + ' · ' + props.phase.toUpperCase() + '</h4>' +
-          '<h3 style="margin-bottom:0.75em">' + props.theme + '</h3>' +
-          '<p style="color:var(--muted);font-size:0.88em;margin-bottom:1.5em">' + loadStr + '</p>' +
-          '<p style="color:var(--muted);font-size:0.85em;margin-bottom:1em">Sessions for this week haven\'t been detailed yet.</p>' +
-          '<button class="btn-primary" onclick="expandWeek(' + props.weekId + ')">Expand to daily sessions →</button>'
+          '<div style="padding:24px 26px 32px;">' +
+          '<button class="detail-close" onclick="closePanel()">&#10005;</button>' +
+          '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted2);margin-bottom:11px;clear:both;padding-top:8px;">WEEK ' + props.weekNum + ' &middot; ' + props.phase.toUpperCase() + '</div>' +
+          '<h2 style="margin-bottom:10px;">' + props.theme + '</h2>' +
+          '<p style="color:var(--muted);font-size:13.5px;margin-bottom:22px;">' + loadStr + '</p>' +
+          '<p style="color:var(--muted2);font-size:13px;margin-bottom:16px;">Sessions for this week haven\'t been detailed yet.</p>' +
+          '<button class="btn-primary" style="border-radius:10px;" onclick="expandWeek(' + props.weekId + ')">Expand to daily sessions &rarr;</button>' +
+          '</div>'
         );
       } else if (props.kind === 'planned') {
         fetch('/calendar/session/' + props.sessionId)
-          .then(function (r) { return r.text(); })
-          .then(function (html) { openPanel(html); });
+          .then(function(r) { return r.text(); })
+          .then(function(html) { openPanel(html); });
       } else if (props.kind === 'actual') {
-        openPanel('<p style="color:var(--muted);padding:1em">Loading activity&hellip;</p>');
+        openPanel('<div style="padding:2em;color:var(--muted)">Loading activity&hellip;</div>');
         fetch('/calendar/activity/' + props.activityId)
-          .then(function (r) { return r.text(); })
-          .then(function (html) {
+          .then(function(r) { return r.text(); })
+          .then(function(html) {
             detailEl.innerHTML = html;
             initActivityDetail();
           });
@@ -216,21 +277,21 @@ document.addEventListener('DOMContentLoaded', function () {
   _calendarRef = calendar;
   calendar.render();
 
-  detailEl.addEventListener('submit', function (e) {
+  detailEl.addEventListener('submit', function(e) {
     if (e.target.id !== 'adjust-form') return;
     e.preventDefault();
     var form = e.target;
-    var sessionId  = form.dataset.sessionId;
+    var sessionId   = form.dataset.sessionId;
     var instruction = form.instruction.value;
-    var statusEl   = document.getElementById('adjust-status');
-    statusEl.textContent = 'Adjusting via Claude…';
+    var statusEl    = document.getElementById('adjust-status');
+    statusEl.textContent = 'Claude is adjusting…';
     fetch('/calendar/session/' + sessionId + '/adjust', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instruction: instruction })
     })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
         if (data.ok) {
           closePanel();
           calendar.refetchEvents();

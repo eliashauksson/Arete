@@ -1,45 +1,70 @@
-<button class="detail-close" onclick="closePanel()">✕</button>
-<h3 style="margin-bottom:0.6em;font-size:1.3em;padding-right:2em">{{ session.title }}</h3>
+<div style="padding:22px 24px 28px;">
+  <button class="detail-close" onclick="closePanel()">&times;</button>
 
-<p style="margin-bottom:1em">
-  <span class="badge">{{ session.date.strftime("%-d %b %Y") }}</span>
-  <span class="badge">{{ session.date.strftime("%A") }}</span>
-  <span class="badge">{{ session.sport_type }}</span>
-  {% if session.planned_duration_min %}<span class="badge">{{ session.planned_duration_min }} min</span>{% endif %}
-  {% if session.hr_zone %}<span class="badge zone-{{ session.hr_zone }}">Zone {{ session.hr_zone }}</span>{% endif %}
-  {% if session.planned_load %}<span class="badge">Load {{ session.planned_load | int }}</span>{% endif %}
-</p>
+  {% set sport_colors = {'run':'#FF5A1F','bike':'#34A9F0','swim':'#2FD3C0','strength':'#E2B23C','other':'#3A5A7A'} %}
+  {% set sc = sport_colors.get(session.sport_type, '#3A5A7A') %}
 
-{% if session.description %}
-<p style="color:var(--muted);font-size:0.92em;margin-bottom:1.25em">{{ session.description }}</p>
-{% endif %}
-
-{% if structure %}
-<h4 style="margin-bottom:0.5em">Workout structure</h4>
-<div class="timeline">
-  {% set total_dur = structure | sum(attribute='duration_min') %}
-  {% for block in structure %}
-  <div class="tl-block {{ block.type }}" style="flex:{{ block.duration_min }}" title="{{ block.type }} — {{ block.duration_min }} min{% if block.note %}: {{ block.note }}{% endif %}">
-    {% if block.duration_min >= 12 %}{{ block.type[:3] }}{% endif %}
+  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:{{ sc }};margin-bottom:10px;clear:both;padding-top:4px;">
+    {{ session.sport_type | title }} &middot; {{ session.date.strftime("%-d %b %Y") }} &middot; {{ session.date.strftime("%A") }}
   </div>
-  {% endfor %}
-</div>
-<div class="block-list">
-  {% for block in structure %}
-  <div class="block-row">
-    <span class="block-type">{{ block.type }}</span>
-    <span class="block-dur">{{ block.duration_min }} min</span>
-    {% if block.note %}<span class="block-note">{{ block.note }}</span>{% endif %}
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
 
-<h4 style="margin-bottom:0.6em">Adjust this session</h4>
-<form id="adjust-form" data-session-id="{{ session.id }}">
-  <textarea name="instruction" rows="2"
-    placeholder="e.g. I'm feeling tired, make this easier" required
-    style="margin-bottom:0.5em"></textarea>
-  <button type="submit" class="btn-primary">Adjust via Claude</button>
-</form>
-<p id="adjust-status"></p>
+  <h2 style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;line-height:1.25;color:var(--ink);margin-bottom:14px;">{{ session.title }}</h2>
+
+  <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px;">
+    {% if session.planned_duration_min %}
+    <span class="badge">{{ session.planned_duration_min }} min</span>
+    {% endif %}
+    {% if session.hr_zone %}
+    {% set zone_css = {1:'badge zone-1',2:'badge zone-2',3:'badge zone-3',4:'badge zone-4',5:'badge zone-5'} %}
+    <span class="{{ zone_css.get(session.hr_zone, 'badge') }}">Z{{ session.hr_zone }}</span>
+    {% endif %}
+    {% if session.planned_load %}
+    <span class="badge">Load {{ session.planned_load | int }}</span>
+    {% endif %}
+  </div>
+
+  {% if session.description %}
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.6;margin-bottom:18px;">{{ session.description }}</p>
+  {% endif %}
+
+  {% if structure %}
+  <div style="margin-bottom:20px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted2);margin-bottom:9px;">Workout structure</div>
+    {% set block_colors = {'warmup':'#3A5A7A','main':'#FF5A1F','interval':'#FF5A1F','threshold':'#d94100','tempo':'#c8470f','recovery':'#33506b','cooldown':'#22303f','rest':'#1c2733'} %}
+    <div style="display:flex;height:26px;border-radius:7px;overflow:hidden;margin-bottom:10px;gap:1px;background:var(--panel2);">
+      {% for block in structure %}
+      {% set bc = block_colors.get(block.type, '#3A5A7A') %}
+      <div style="flex:{{ block.duration_min }};background:{{ bc }};display:flex;align-items:center;justify-content:center;"
+           title="{{ block.type }} — {{ block.duration_min }} min{% if block.note %}: {{ block.note }}{% endif %}">
+        {% if block.duration_min >= 12 %}
+        <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:rgba(255,255,255,0.7);text-transform:uppercase;">{{ block.type[:3] }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      {% for block in structure %}
+      {% set bc = block_colors.get(block.type, '#3A5A7A') %}
+      <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{ bc }};flex-shrink:0;"></span>
+        <span style="font-weight:500;color:var(--ink2);min-width:80px;text-transform:capitalize;">{{ block.type }}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);">{{ block.duration_min }} min</span>
+        {% if block.note %}<span style="color:var(--muted2);font-size:11.5px;">{{ block.note }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div style="border-top:1px solid var(--line);padding-top:18px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted2);margin-bottom:11px;">&#10022; Adjust via Claude</div>
+    <form id="adjust-form" data-session-id="{{ session.id }}">
+      <textarea name="instruction" rows="2"
+        placeholder="e.g. I'm feeling tired — make this easier"
+        required
+        style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--ink);padding:10px 13px;font-size:13.5px;font-family:'Space Grotesk',sans-serif;resize:vertical;box-sizing:border-box;margin-bottom:10px;"></textarea>
+      <button type="submit" class="btn-primary" style="border-radius:10px;gap:6px;">&#10022; Adjust session</button>
+    </form>
+    <p id="adjust-status" style="font-size:12.5px;color:var(--hot);margin-top:8px;min-height:1em;"></p>
+  </div>
+</div>

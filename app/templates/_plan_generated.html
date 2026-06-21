@@ -2,16 +2,16 @@
 <div class="msg-row claude">
   <div class="bubble claude">
     <p style="color:#f87171;margin-bottom:0.5em">Plan generation failed: {{ error }}</p>
-    <p style="color:var(--muted);font-size:0.88em">You can try again by refreshing the page, or <a href="/setup/reset">start a new conversation</a>.</p>
+    <p style="color:var(--muted);font-size:0.88em">You can try again by refreshing the page, or <a href="/setup/reset" style="color:var(--hot);">start a new conversation</a>.</p>
   </div>
 </div>
 {% else %}
 <div class="msg-row claude">
-  <div class="bubble claude" style="padding:1.1em 1.25em">
-    <p style="margin-bottom:0.75em">Your 4-week training plan is ready.</p>
-    <div style="display:flex;gap:0.6em;flex-wrap:wrap">
-      <a href="/calendar" class="btn btn-primary">View calendar →</a>
-      <a href="/setup/refine" class="btn">Refine the plan</a>
+  <div class="bubble claude" style="padding:1.1em 1.25em;">
+    <p style="margin-bottom:12px;color:var(--ink);">Your season training plan is ready.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a href="/calendar" class="gen-cta-btn" style="text-decoration:none;">View calendar &rarr;</a>
+      <a href="/setup/refine" class="btn" style="border-radius:10px;text-decoration:none;">Refine the plan</a>
     </div>
   </div>
 </div>

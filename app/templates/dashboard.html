@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Arete{% endblock %}
 {% block content %}
+
+<div class="setup-eyebrow">Season Overview &middot; Training Load</div>
 <h1>Dashboard</h1>
+<p class="setup-subline">Planned vs. actual training load across the season &mdash; and how compliant you&rsquo;ve stayed.</p>
 
 {% if not weeks %}
 <div class="card" style="text-align:center;padding:3em">
   <p style="color:var(--muted);margin-bottom:1em">No active training plan yet.</p>
-  <a href="/setup" class="btn btn-primary">Set up a plan →</a>
+  <a href="/setup" class="btn btn-primary">Set up a plan &rarr;</a>
 </div>
 {% else %}
 
@@ -19,112 +22,138 @@
     {% set ns.comp_n   = ns.comp_n   + 1 %}
   {% endif %}
 {% endfor %}
+{% if ns.comp_n > 0 %}{% set avg_comp = (ns.comp_sum / ns.comp_n) | round(0) | int %}{% else %}{% set avg_comp = none %}{% endif %}
 
-<div class="stat-grid">
+<div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
   <div class="stat-card">
     <div class="stat-label">Total Planned Load</div>
     <div class="stat-value">{{ ns.planned | round(0) | int }}</div>
+    <div class="stat-sub">all weeks &middot; season to date</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Total Actual Load</div>
     <div class="stat-value">{{ ns.actual | round(0) | int }}</div>
+    <div class="stat-sub">from completed sessions</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Avg Compliance</div>
-    {% if ns.comp_n > 0 %}
-      {% set avg_comp = (ns.comp_sum / ns.comp_n) | round(0) | int %}
-      <div class="stat-value {% if avg_comp >= 80 %}accent{% else %}muted{% endif %}">{{ avg_comp }}%</div>
+    {% if avg_comp is not none %}
+      <div class="stat-value" style="color:{% if avg_comp >= 95 %}var(--hot){% elif avg_comp >= 85 %}#3fae6c{% else %}#b48a00{% endif %}">{{ avg_comp }}%</div>
     {% else %}
-      <div class="stat-value muted">—</div>
+      <div class="stat-value muted">&mdash;</div>
     {% endif %}
+    <div class="stat-sub">planned load completed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Weeks Tracked</div>
+    <div class="stat-value">{{ weeks | length }}</div>
+    <div class="stat-sub">in current plan</div>
   </div>
 </div>
 
-<div class="card" style="margin-bottom:2em;padding:1.5em">
-  <canvas id="load-chart" height="110"></canvas>
+<div class="card" style="margin-bottom:18px;padding:20px 22px 14px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <h4>Planned vs. Actual Load &middot; by week</h4>
+    <div style="display:flex;gap:16px;font-size:11.5px;color:var(--muted);">
+      <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--hot);display:inline-block;"></span>Planned</span>
+      <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--actual);display:inline-block;"></span>Actual</span>
+    </div>
+  </div>
+  <div style="height:262px;"><canvas id="load-chart"></canvas></div>
 </div>
 
-<h2>Weekly breakdown</h2>
-<div class="card" style="padding:0">
-  <table>
-    <thead>
-      <tr>
-        <th>Week</th>
-        <th>Planned</th>
-        <th>Actual</th>
-        <th>Compliance</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for w in weeks %}
-      <tr>
-        <td>{{ w.week_start }}</td>
-        <td>{{ w.planned_load }}</td>
-        <td>{{ w.actual_load }}</td>
-        <td>
-          {% if w.compliance is not none %}
-            <span style="color:{% if w.compliance >= 80 %}var(--accent){% elif w.compliance >= 60 %}var(--text){% else %}var(--muted){% endif %}">
-              {{ w.compliance }}%
-            </span>
-          {% else %}—{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="card" style="padding:0;overflow:hidden;margin-bottom:18px;">
+  <div style="padding:15px 20px;border-bottom:1px solid var(--line);">
+    <h4>Weekly Breakdown</h4>
+  </div>
+  <div style="overflow-x:auto;">
+    <table style="min-width:520px;">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th>Planned</th>
+          <th>Actual</th>
+          <th style="width:170px;">Compliance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in weeks %}
+        <tr>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ w.week_start }}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);">{{ w.planned_load }}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ w.actual_load }}</td>
+          <td>
+            {% if w.compliance is not none %}
+            <div style="display:flex;align-items:center;gap:9px;">
+              <div style="flex:1;height:5px;border-radius:3px;background:var(--barbg);overflow:hidden;">
+                <div style="height:100%;width:{{ [w.compliance, 100] | min }}%;background:{% if w.compliance >= 95 %}var(--hot){% elif w.compliance >= 85 %}#3fae6c{% elif w.compliance >= 70 %}#b48a00{% else %}#d2580a{% endif %};border-radius:3px;"></div>
+              </div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;min-width:36px;text-align:right;color:{% if w.compliance >= 95 %}var(--hot){% elif w.compliance >= 85 %}#3fae6c{% elif w.compliance >= 70 %}#b48a00{% else %}#d2580a{% endif %};">{{ w.compliance }}%</span>
+            </div>
+            {% else %}
+            <span style="color:var(--muted2);">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<div style="margin-top:1.5em">
-  <form method="post" action="/dashboard/re-adjust" style="display:inline">
-    <button type="submit">Re-adjust plan based on last week</button>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid var(--hot-bd);background:var(--hot-wash);border-radius:14px;padding:18px 22px;flex-wrap:wrap;">
+  <div style="flex:1;min-width:220px;">
+    <div style="font-family:'Newsreader',serif;font-size:19px;margin-bottom:3px;color:var(--ink);">Rebalance the weeks ahead</div>
+    <div style="color:var(--muted);font-size:13px;">Send last week&rsquo;s actuals to Claude and let it adjust the upcoming load. <span id="readjust-status" style="color:var(--hot);"></span></div>
+  </div>
+  <form method="post" action="/dashboard/re-adjust" style="display:inline" onsubmit="document.getElementById('readjust-status').textContent=' → Sending to Claude…'">
+    <button type="submit" class="btn-primary" style="border-radius:10px;gap:7px;">&#10022; Re-adjust plan</button>
   </form>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
 <script>
-(function () {
+(function() {
   var weeks = {{ weeks_json | safe }};
-  Chart.defaults.color = '#6B8FAD';
-  Chart.defaults.borderColor = '#1E3A52';
-  var ctx = document.getElementById('load-chart');
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: weeks.map(function (w) { return w.week_start; }),
-      datasets: [
-        {
-          label: 'Planned',
-          data: weeks.map(function (w) { return w.planned_load; }),
-          backgroundColor: '#FC4C02',
-          borderRadius: 3,
-          borderSkipped: false
-        },
-        {
-          label: 'Actual',
-          data: weeks.map(function (w) { return w.actual_load; }),
-          backgroundColor: 'rgba(255,255,255,0.85)',
-          borderRadius: 3,
-          borderSkipped: false
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { labels: { color: '#6B8FAD', font: { size: 12 } } }
+  var _chart = null;
+
+  function chartTheme() {
+    var dark = document.documentElement.getAttribute('data-theme') !== 'light';
+    return dark
+      ? { grid:'#16202b', tick:'#52647A', actual:'rgba(237,239,242,0.88)', hot:'#FF5A1F' }
+      : { grid:'#E6DFD0', tick:'#9AA3AC', actual:'#33414E', hot:'#E8480E' };
+  }
+
+  function buildChart() {
+    var el = document.getElementById('load-chart');
+    if (!el) return;
+    if (_chart) { _chart.destroy(); _chart = null; }
+    var t = chartTheme();
+    Chart.defaults.font.family = "'Space Grotesk', sans-serif";
+    _chart = new Chart(el, {
+      type: 'bar',
+      data: {
+        labels: weeks.map(function(w) { return w.week_start; }),
+        datasets: [
+          { label:'Planned', data:weeks.map(function(w){ return w.planned_load; }), backgroundColor:t.hot, borderRadius:4, borderSkipped:false },
+          { label:'Actual',  data:weeks.map(function(w){ return w.actual_load; }),  backgroundColor:t.actual, borderRadius:4, borderSkipped:false }
+        ]
       },
-      scales: {
-        x: {
-          grid: { color: '#1E3A52' },
-          ticks: { color: '#6B8FAD', font: { size: 11 } }
-        },
-        y: {
-          grid: { color: '#1E3A52' },
-          ticks: { color: '#6B8FAD', font: { size: 11 } }
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ grid:{ display:false }, ticks:{ color:t.tick, font:{ size:11 } } },
+          y:{ grid:{ color:t.grid }, ticks:{ color:t.tick, font:{ size:10 } } }
         }
       }
-    }
-  });
+    });
+  }
+
+  buildChart();
+
+  // Expose for theme toggle
+  window.arRebuildCharts = buildChart;
 })();
 </script>
 {% endif %}

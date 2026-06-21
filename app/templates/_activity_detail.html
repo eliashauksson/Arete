@@ -1,35 +1,83 @@
-<button class="detail-close" onclick="closePanel()">✕</button>
-<h3 style="margin-bottom:0.6em;font-size:1.3em;padding-right:2em">{{ activity.name }}</h3>
+<div style="padding:22px 24px 28px;">
+  <button class="detail-close" onclick="closePanel()">&times;</button>
 
-<p style="margin-bottom:1em">
-  <span class="badge">{{ activity.start_date.strftime("%-d %b %Y") }}</span>
-  <span class="badge">{{ activity.sport_type | title }}</span>
-  {% if activity.moving_time %}<span class="badge">{{ activity.moving_time // 60 }} min</span>{% endif %}
-  {% if activity.distance %}<span class="badge">{{ (activity.distance / 1000) | round(1) }} km</span>{% endif %}
-  {% if activity.average_heartrate %}<span class="badge">{{ activity.average_heartrate | int }} bpm avg</span>{% endif %}
-  {% if activity.total_elevation_gain %}<span class="badge">+{{ activity.total_elevation_gain | int }} m</span>{% endif %}
-</p>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#2FD3C0;margin-bottom:10px;clear:both;padding-top:4px;">
+    &#10003; Completed &middot; {{ activity.sport_type | title }} &middot; {{ activity.start_date.strftime("%-d %b %Y") }}
+  </div>
 
-{% if activity.ai_summary %}
-<p style="color:var(--muted);font-size:0.92em;margin-bottom:1.25em">{{ activity.ai_summary }}</p>
-{% endif %}
+  <h2 style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;line-height:1.25;color:var(--ink);margin-bottom:18px;">{{ activity.name }}</h2>
 
-{% if gpx_coords_json %}
-<div id="act-map" data-coords='{{ gpx_coords_json | safe }}'></div>
-{% endif %}
+  {% if gpx_coords_json %}
+  <div id="act-map" data-coords='{{ gpx_coords_json | safe }}'
+       style="height:190px;border-radius:12px;border:1px solid var(--line);margin-bottom:16px;overflow:hidden;"></div>
+  {% endif %}
 
-{% if hr_times_json %}
-<h4 style="margin:0.75em 0 0.35em">Heart Rate</h4>
-<canvas id="act-hr"
-        data-times='{{ hr_times_json | safe }}'
-        data-values='{{ hr_values_json | safe }}'
-        style="max-height:110px"></canvas>
-{% endif %}
+  <div class="act-stat-grid" style="margin-bottom:16px;">
+    {% if activity.distance %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Distance</div>
+      <div class="act-stat-value">{{ (activity.distance / 1000) | round(2) }}<span style="font-size:11px;color:var(--muted2);margin-left:2px;">km</span></div>
+    </div>
+    {% endif %}
+    {% if activity.moving_time %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Time</div>
+      <div class="act-stat-value">{{ "%d:%02d"|format(activity.moving_time // 3600, (activity.moving_time % 3600) // 60) }}<span style="font-size:11px;color:var(--muted2);margin-left:2px;">h</span></div>
+    </div>
+    {% endif %}
+    {% if activity.distance and activity.moving_time and activity.moving_time > 0 %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Avg Pace</div>
+      {% set pace_s = (activity.moving_time / (activity.distance / 1000)) | int %}
+      <div class="act-stat-value">{{ "%d:%02d"|format(pace_s // 60, pace_s % 60) }}<span style="font-size:11px;color:var(--muted2);margin-left:2px;">/km</span></div>
+    </div>
+    {% endif %}
+    {% if activity.average_heartrate %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Avg HR</div>
+      <div class="act-stat-value">{{ activity.average_heartrate | int }}<span style="font-size:11px;color:var(--muted2);margin-left:2px;">bpm</span></div>
+    </div>
+    {% endif %}
+    {% if activity.total_elevation_gain %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Elevation</div>
+      <div class="act-stat-value">+{{ activity.total_elevation_gain | int }}<span style="font-size:11px;color:var(--muted2);margin-left:2px;">m</span></div>
+    </div>
+    {% endif %}
+    {% if activity.suffer_score %}
+    <div class="act-stat-cell">
+      <div class="act-stat-label">Rel. Effort</div>
+      <div class="act-stat-value">{{ activity.suffer_score | int }}</div>
+    </div>
+    {% endif %}
+  </div>
 
-{% if pace_times_json %}
-<h4 style="margin:0.75em 0 0.35em">Pace (min/km)</h4>
-<canvas id="act-pace"
-        data-times='{{ pace_times_json | safe }}'
-        data-values='{{ pace_values_json | safe }}'
-        style="max-height:110px"></canvas>
-{% endif %}
+  {% if hr_times_json %}
+  <div style="margin-bottom:14px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted2);margin-bottom:7px;">Heart Rate</div>
+    <div style="height:90px;">
+      <canvas id="act-hr"
+              data-times='{{ hr_times_json | safe }}'
+              data-values='{{ hr_values_json | safe }}'></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if pace_times_json %}
+  <div style="margin-bottom:14px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted2);margin-bottom:7px;">Pace (min/km)</div>
+    <div style="height:90px;">
+      <canvas id="act-pace"
+              data-times='{{ pace_times_json | safe }}'
+              data-values='{{ pace_values_json | safe }}'></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if activity.ai_summary %}
+  <div class="ai-callout" style="margin-top:14px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--hot);margin-bottom:8px;">&#10022; Claude &mdash; Coach Summary</div>
+    <p style="font-size:13.5px;line-height:1.65;color:var(--ink2);margin:0;">{{ activity.ai_summary }}</p>
+  </div>
+  {% endif %}
+</div>

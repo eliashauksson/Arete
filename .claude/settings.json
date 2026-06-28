@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); [[ \"$f\" == /home/eliash/Documents/Arete/* ]] || exit 0; cd /home/eliash/Documents/Arete && python -m pytest tests/test_unit.py -q || exit 2",
+            "timeout": 30,
+            "statusMessage": "Running unit tests..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
-from app.claude_client import generate_activity_summary, mcp_result_to_text
+from app.claude_client import generate_activity_summary
 from app.db import get_session
 from app.mcp_client import strava_mcp
 from app.models import Athlete, Goal, MacroPlan, MacroWeek, PlannedSession, StravaActivity, TrainingPlan
@@ -277,7 +277,8 @@ async def activity_detail(request: Request, activity_id: int, db: Session = Depe
                 "get-activity-streams",
                 {"id": activity.strava_id, "types": ["time", "latlng", "heartrate", "velocity_smooth"], "resolution": "low"},
             )
-            stream = json.loads(mcp_result_to_text(result))
+            result_parts = [getattr(item, "text", None) for item in result.content]
+            stream = json.loads("\n".join(p for p in result_parts if p) or "(no content)")
             data = stream.get("data", {})
 
             activity.gpx_data = json.dumps(data["latlng"]) if data.get("latlng") else "[]"

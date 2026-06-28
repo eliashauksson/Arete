@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.mcp_client import strava_mcp
 from app.models import Athlete, MacroPlan, MacroWeek, PlannedSession, TrainingPlan
-from app.planner import activity_load, sync_strava_activities, weekly_reonadjust
+from app.planner import sync_strava_activities, weekly_reonadjust
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -72,7 +72,7 @@ async def _weekly_breakdown(db: Session) -> list[dict]:
 
     actual_by_week: dict = defaultdict(float)
     for a in activities:
-        actual_by_week[_week_start(a.start_date.date())] += activity_load(a)
+        actual_by_week[_week_start(a.start_date.date())] += a.relative_effort if a.relative_effort is not None else a.moving_time / 60
 
     weeks = []
     for mw in macro_weeks:

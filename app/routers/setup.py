@@ -45,7 +45,6 @@ async def setup_page(request: Request, db: Session = Depends(get_session)):
         if conv:
             raw = json.loads(conv.messages)
             # Strip internal markers so the history renders cleanly
-            from app.claude_client import clean_claude_message
             messages = [
                 {"role": m["role"], "content": clean_claude_message(m["content"]) if m["role"] == "assistant" else m["content"]}
                 for m in raw

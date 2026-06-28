@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date as _date, timedelta
 from typing import Any, Optional
 
@@ -8,23 +9,8 @@ from app.config import settings
 from app.knowledge import load_knowledge
 from app.mcp_client import StravaMCPClient
 
-_client: Optional[anthropic.AsyncAnthropic] = None
+_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 _athlete_context_cache: Optional[str] = None
-
-
-def get_client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    return _client
-
-
-def mcp_tool_to_claude_tool(t: Any) -> dict:
-    return {
-        "name": t.name,
-        "description": t.description or "",
-        "input_schema": t.inputSchema,
-    }
 
 
 async def cached_tools(mcp: StravaMCPClient) -> list[dict]:
@@ -32,7 +18,7 @@ async def cached_tools(mcp: StravaMCPClient) -> list[dict]:
     breakpoint on the last one. Tools render first in the API's prompt prefix, so
     this caches the whole (~5k-token) tools array across loop iterations and
     separate calls, as long as the MCP server's tool list doesn't change."""
-    tools = [mcp_tool_to_claude_tool(t) for t in await mcp.list_tools()]
+    tools = [{"name": t.name, "description": t.description or "", "input_schema": t.inputSchema} for t in await mcp.list_tools()]
     if tools:
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral", "ttl": "1h"}}
     return tools
@@ -68,12 +54,6 @@ async def get_cached_athlete_context(mcp: StravaMCPClient) -> Optional[str]:
     return _athlete_context_cache
 
 
-def mcp_result_to_text(result: Any) -> str:
-    parts = [getattr(item, "text", None) for item in result.content]
-    text = "\n".join(p for p in parts if p)
-    return text or "(no content)"
-
-
 def extract_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -100,14 +80,13 @@ async def _agentic_loop(
     max_tokens: int,
     max_iterations: int = 8,
 ) -> tuple[str, list[dict]]:
-    client = get_client()
     extra: dict = (
         {"system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]}
         if system
         else {}
     )
     for _ in range(max_iterations):
-        response = await client.messages.create(
+        response = await _client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=max_tokens,
             output_config={"effort": effort},
@@ -131,11 +110,12 @@ async def _agentic_loop(
         for block in response.content:
             if block.type == "tool_use":
                 result = await mcp.call_tool(block.name, block.input)
+                result_parts = [getattr(item, "text", None) for item in result.content]
                 tool_results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": mcp_result_to_text(result),
+                        "content": "\n".join(p for p in result_parts if p) or "(no content)",
                         "is_error": bool(getattr(result, "isError", False)),
                     }
                 )
@@ -201,7 +181,7 @@ async def run_agentic_json(
 async def generate_activity_summary(activity) -> str:
     """Lightweight Claude call (no MCP) to produce a 2-3 sentence coaching summary
     from an activity's aggregate stats."""
-    client = get_client()
+    client = _client
     parts = [f"{activity.sport_type.title()} — {activity.name}"]
     if activity.moving_time:
         parts.append(f"{activity.moving_time // 60} min")
@@ -253,7 +233,7 @@ PLAN_CONFIRMED"""
 
 async def setup_chat_response(messages: list[dict], strava_context: Optional[str] = None) -> str:
     """Single Claude call (no tools) for the conversational setup intake."""
-    client = get_client()
+    client = _client
     system = _SETUP_SYSTEM
     if strava_context:
         system += f"\n\nAthlete's Strava snapshot (reference naturally, don't quote verbatim):\n{strava_context}"
@@ -276,7 +256,6 @@ async def setup_chat_response(messages: list[dict], strava_context: Optional[str
 
 def extract_goal_json(text: str) -> Optional[dict]:
     """Parse the <GOAL_JSON>…</GOAL_JSON> block Claude emits on confirmation."""
-    import re
     m = re.search(r"<GOAL_JSON>(.*?)</GOAL_JSON>", text, re.DOTALL)
     if m:
         try:
@@ -288,7 +267,6 @@ def extract_goal_json(text: str) -> Optional[dict]:
 
 def clean_claude_message(text: str) -> str:
     """Strip internal markers before showing text to the user."""
-    import re
     text = re.sub(r"<GOAL_JSON>.*?</GOAL_JSON>", "", text, flags=re.DOTALL)
     text = text.replace("PLAN_CONFIRMED", "")
     return text.strip()
@@ -302,7 +280,7 @@ async def generate_macro_plan(
     athlete_context: Optional[str] = None,
 ) -> dict:
     """One Claude call (no MCP) to produce a full-season macro plan as compact JSON."""
-    client = get_client()
+    client = _client
     num_weeks = max(1, ((season_end - season_start).days // 7) + 1)
 
     goals = goal_data.get("goals", [])
@@ -376,7 +354,7 @@ async def expand_macro_week(
     sport_types: Optional[list[str]] = None,
 ) -> dict:
     """Lightweight Haiku call to expand one MacroWeek into 7 PlannedSession records."""
-    client = get_client()
+    client = _client
 
     start = _date.fromisoformat(week["start_date"])
     days = [(start + timedelta(days=i)) for i in range(7)]

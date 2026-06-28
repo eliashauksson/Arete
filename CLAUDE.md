@@ -106,6 +106,69 @@ knowledge/               Sport-specific training science reference (loaded at pl
 
 ---
 
+## Code simplicity rules (enforce these strictly)
+
+The goal is simple code that works. These rules override the instinct to generalize,
+abstract, or "clean up" surrounding code while fixing something.
+
+### Scope — only touch what the task requires
+
+- **Fix the bug, change the feature, stop.** Do not improve, rename, reformat, or
+  restructure code that isn't directly part of the task. If you notice something
+  unrelated that could be better, mention it in a comment to the user — don't fix it.
+- **Don't refactor surrounding code** while adding a new feature. The new code should
+  fit in as-is, even if the neighborhood isn't perfect.
+- **Don't reorganize imports, reorder functions, or adjust whitespace** in files you
+  touch unless the task is explicitly about that file's formatting.
+
+### What not to create
+
+- **No new modules.** The five modules (`claude_client.py`, `planner.py`, `db.py`,
+  `mcp_client.py`, `knowledge.py`) plus three routers cover everything. Don't add a
+  `services/`, `utils/`, `helpers/`, or `schemas/` layer. If logic doesn't fit an
+  existing module, put it in the router that needs it.
+- **No new classes.** `planner.py` and `claude_client.py` are intentionally
+  function-based. Don't introduce a `PlanGenerator`, `SessionBuilder`, or any
+  wrapper class. Use functions.
+- **No new Pydantic/SQLModel request models** for simple payloads. A route that
+  takes `{"instruction": "..."}` can use `body: dict = Body(...)` or read the key
+  directly. Don't create an `AdjustRequest` model for a one-field body.
+- **No new template partials** for HTML that's only rendered in one place. Inline
+  it in the parent template.
+
+### What not to extract
+
+- **Don't extract a function** unless the exact same logic appears in 3+ call sites.
+  A 10-line block in a route handler is fine. A one-call wrapper function is noise.
+- **Don't extract constants** for values used once. A value used in one place can
+  stay inline with a comment.
+- **Don't split a working function** into smaller pieces because it "does two things."
+  FastAPI route handlers do several things by design.
+
+### SQLModel / DB rules
+
+- Add columns via `migrate_db()` in `db.py`, not by creating new models.
+- Don't add a repository layer. Queries go directly in routers or `planner.py`.
+- Don't add relationships/FKs unless you need to query across them. A stored JSON
+  field (like `structure` on `PlannedSession`) is often the right call.
+
+### When editing templates
+
+- Don't reorganize CSS or move tokens while fixing a layout bug. Fix the bug, stop.
+- Don't add a CSS class for a style used once — inline the property.
+- All CSS stays in `base.html`'s single `<style>` block. Don't create `.css` files.
+
+### The test: before adding anything new, ask
+
+1. Does this already exist somewhere in the codebase?
+2. Would a future reader need this abstraction to understand the code, or does it
+   just add a layer to navigate?
+3. Is this solving a problem that exists right now, or one that might exist later?
+
+If the answer to (1) is no and (2-3) are "no / might exist later" — don't add it.
+
+---
+
 ## Working on this repo with Claude Code (usage/token efficiency)
 
 This project is worked on heavily via Claude Code on a Pro plan, so context and
@@ -276,9 +339,28 @@ Backend-relevant facts worth keeping here even so:
   (see `DESIGN.md`). Pick one source of truth — recommend a shared constants module
   both Python and Jinja read from, rather than two hardcoded lists.
 - `app/static/` is empty (mounted, must exist)
-- No tests of any kind
+- ~~No tests of any kind~~ Unit tests exist in `tests/test_unit.py` (63 tests, Layer 1 only — pure functions and DB helpers, no Claude/Strava)
 - No way to view/manage archived plans or edit goals after generation
 - `weekly_reonadjust` has a typo in its function name (extra `o`)
+
+---
+
+## Testing rules
+
+Unit tests live in `tests/test_unit.py`. A `PostToolUse` hook runs them automatically after every file edit, but also run them manually when finishing a task.
+
+**After every code change:** run `python -m pytest tests/test_unit.py -q` and fix any failures before reporting the task done.
+
+**When adding new code:** evaluate whether tests are needed and write them without being asked. Write tests if the new code is a pure function or DB helper with no Claude/Strava dependency. Skip if it requires mocking the agentic loop, MCP, or HTTP — those are Layer 2 and not currently covered.
+
+**What belongs in `tests/test_unit.py`:**
+- New pure functions in `claude_client.py`, `planner.py`, `knowledge.py`, `db.py`
+- New small helpers in routers (e.g. a new `_parse_*` or `_build_*` function)
+- Edge cases for existing functions when you discover an untested branch while working nearby
+
+**What does not belong:**
+- Tests that require Claude API calls, Strava MCP, or the full FastAPI app
+- Tests for route handlers (Layer 2 — not currently in scope)
 
 ---
 

@@ -181,50 +181,6 @@ async def regenerate_sessions_from(
     return new_sessions
 
 
-def _store_macro_plan(
-    db: Session,
-    training_plan: TrainingPlan,
-    athlete,
-    weeks_data: list[dict],
-    season_start: date,
-    season_end: date,
-) -> MacroPlan:
-    macro_plan = MacroPlan(
-        training_plan_id=training_plan.id,
-        athlete_id=athlete.id,
-        season_start=season_start,
-        season_end=season_end,
-    )
-    db.add(macro_plan)
-    db.commit()
-    db.refresh(macro_plan)
-
-    for w in weeks_data:
-        raw_start = w.get("start_date")
-        try:
-            w_start = date.fromisoformat(raw_start) if raw_start else season_start + timedelta(weeks=w.get("week_number", 1) - 1)
-        except ValueError:
-            w_start = season_start + timedelta(weeks=w.get("week_number", 1) - 1)
-        # Normalise to the Monday of that week
-        w_start = w_start - timedelta(days=w_start.weekday())
-
-        db.add(MacroWeek(
-            macro_plan_id=macro_plan.id,
-            week_number=w.get("week_number", 1),
-            start_date=w_start,
-            phase=w.get("phase", "base"),
-            sport_focus=w.get("sport_focus"),
-            hours_run=float(w.get("hours_run") or 0),
-            hours_bike=float(w.get("hours_bike") or 0),
-            hours_swim=float(w.get("hours_swim") or 0),
-            hours_strength=float(w.get("hours_strength") or 0),
-            theme=w.get("theme", ""),
-            is_expanded=False,
-        ))
-    db.commit()
-    return macro_plan
-
-
 async def _expand_week(
     db: Session,
     plan: TrainingPlan,
@@ -432,7 +388,37 @@ async def generate_initial_plan(mcp: StravaMCPClient, db: Session, athlete, goal
     )
     weeks_data = macro_data.get("weeks", [])
     print(f"[planner] macro plan: {len(weeks_data)} weeks, {season_start} → {season_end}")
-    _store_macro_plan(db, plan, athlete, weeks_data, season_start, season_end)
+
+    macro_plan = MacroPlan(
+        training_plan_id=plan.id,
+        athlete_id=athlete.id,
+        season_start=season_start,
+        season_end=season_end,
+    )
+    db.add(macro_plan)
+    db.commit()
+    db.refresh(macro_plan)
+    for w in weeks_data:
+        raw_start = w.get("start_date")
+        try:
+            w_start = date.fromisoformat(raw_start) if raw_start else season_start + timedelta(weeks=w.get("week_number", 1) - 1)
+        except ValueError:
+            w_start = season_start + timedelta(weeks=w.get("week_number", 1) - 1)
+        w_start = w_start - timedelta(days=w_start.weekday())  # normalise to Monday
+        db.add(MacroWeek(
+            macro_plan_id=macro_plan.id,
+            week_number=w.get("week_number", 1),
+            start_date=w_start,
+            phase=w.get("phase", "base"),
+            sport_focus=w.get("sport_focus"),
+            hours_run=float(w.get("hours_run") or 0),
+            hours_bike=float(w.get("hours_bike") or 0),
+            hours_swim=float(w.get("hours_swim") or 0),
+            hours_strength=float(w.get("hours_strength") or 0),
+            theme=w.get("theme", ""),
+            is_expanded=False,
+        ))
+    db.commit()
 
     # ── Layer 2: Expand first 3 weeks into detailed sessions ──────────────────
     macro_plan = db.exec(select(MacroPlan).where(MacroPlan.training_plan_id == plan.id)).first()
@@ -481,7 +467,7 @@ async def weekly_reonadjust(mcp: StravaMCPClient, db: Session, plan: TrainingPla
     planned_load_sum = sum(s.planned_load or 0 for s in planned)
 
     actuals = await sync_strava_activities(mcp, db, plan.athlete_id, week_start, week_end, force=True)
-    actual_load_sum = sum(activity_load(a) for a in actuals)
+    actual_load_sum = sum(a.relative_effort if a.relative_effort is not None else a.moving_time / 60 for a in actuals)
 
     context_prompt = (
         f"Here is how last week ({week_start.isoformat()} to {week_end.isoformat()}) "
@@ -646,7 +632,3 @@ async def refine_plan(
     )
 
 
-def activity_load(activity: StravaActivity) -> float:
-    if activity.relative_effort is not None:
-        return activity.relative_effort
-    return activity.moving_time / 60
